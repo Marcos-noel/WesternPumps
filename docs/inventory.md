@@ -17,6 +17,10 @@ Key fields:
 - Quantity on hand (current stock)
 - Min quantity (low-stock threshold)
 - Supplier (optional)
+- Tracking type (Batch / Individual)
+- Unit of measure
+- Category
+- Location
 
 ### Supplier
 
@@ -46,6 +50,8 @@ Transactions create an audit trail and make inventory changes explainable.
 - Issue stock (creates an `OUT` transaction)
 - Investigate why on-hand changed (review transaction history)
 - View low-stock list (items where on-hand is below threshold)
+- Generate item QR codes for labels or quick lookup
+- Export inventory reports (CSV)
 
 ## Low-stock behavior
 
@@ -53,3 +59,15 @@ An item is considered “low stock” when:
 
 `quantity_on_hand <= min_quantity`
 
+## QR codes
+
+- Each item can generate a QR code that encodes its SKU (format: `SKU:<value>`).
+- Intended for printing labels or quick scanning in the warehouse.
+
+## Reports
+
+- Inventory CSV exports support:
+  - Current view (filters/search applied)
+  - All items
+  - Low stock only
+- Stock transactions can be exported per item from the stock modal.

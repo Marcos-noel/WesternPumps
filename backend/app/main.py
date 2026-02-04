@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db import Base, engine, ensure_schema
-from app.routers import auth, customers, jobs, parts, stock, suppliers, users
+from app.routers import auth, categories, customers, jobs, locations, parts, reports, requests, stock, suppliers, users
 
 
 def create_app() -> FastAPI:
@@ -30,12 +30,16 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(users.router)
+    app.include_router(categories.router)
+    app.include_router(locations.router)
     app.include_router(customers.router)
     app.include_router(jobs.router)
     app.include_router(parts.router)
     app.include_router(parts.api_router)
     app.include_router(suppliers.router)
     app.include_router(stock.router)
+    app.include_router(requests.router)
+    app.include_router(reports.router)
 
     @app.on_event("startup")
     def on_startup() -> None:

@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Item, Paginated } from "./types";
+import type { Item, ItemInstance, Paginated } from "./types";
 
 export type ListItemsParams = {
   page?: number;
@@ -53,3 +53,29 @@ export async function listLowStock(params?: { limit?: number; q?: string }): Pro
   ).data;
 }
 
+export async function getItemQrSvg(itemId: number, data?: string): Promise<string> {
+  return (
+    await api.get<string>(`/api/items/${itemId}/qr`, {
+      params: data ? { data } : undefined,
+      responseType: "text"
+    })
+  ).data as unknown as string;
+}
+
+export async function listItemInstances(itemId: number, params?: { status?: string }): Promise<ItemInstance[]> {
+  return (await api.get<ItemInstance[]>(`/api/items/${itemId}/instances`, { params })).data;
+}
+
+export async function createItemInstance(
+  itemId: number,
+  payload: { serial_number: string; status?: string; location_id?: number | null }
+): Promise<ItemInstance> {
+  return (await api.post<ItemInstance>(`/api/items/${itemId}/instances`, payload)).data;
+}
+
+export async function bulkCreateItemInstances(
+  itemId: number,
+  params: { quantity: number; prefix?: string }
+): Promise<ItemInstance[]> {
+  return (await api.post<ItemInstance[]>(`/api/items/${itemId}/instances/bulk`, null, { params })).data;
+}

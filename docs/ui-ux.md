@@ -10,6 +10,7 @@
 - Support search, sorting, pagination where lists can grow.
 - Show empty states (“No items found”) with a clear next action.
 - Show critical status visually (e.g., low stock badge).
+- Provide contextual row actions (e.g., edit, stock, QR code).
 
 ## Forms
 
@@ -28,4 +29,3 @@
 - Ensure focus styles are visible.
 - Don’t rely on color alone to communicate meaning.
 - Keep hit targets reasonably large (buttons, row actions).
-

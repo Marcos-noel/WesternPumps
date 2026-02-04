@@ -28,4 +28,4 @@ docker compose up --build
 
 ### First-time login
 
-Use **Bootstrap Admin** once in the UI to create the first admin user (only works when no act
+Use **Bootstrap Admin** once in the UI to create the first admin user (only works when no active admin exists yet).

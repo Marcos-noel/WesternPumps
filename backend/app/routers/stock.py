@@ -6,7 +6,15 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import Part, StockTransaction, StockTransactionType as ModelStockTransactionType, Supplier, User
+from app.models import (
+    ItemInstance,
+    ItemStatus,
+    Part,
+    StockTransaction,
+    StockTransactionType as ModelStockTransactionType,
+    Supplier,
+    User,
+)
 from app.schemas import StockTransactionCreate, StockTransactionRead
 
 
@@ -46,6 +54,12 @@ def create_transaction(
     if payload.quantity_delta == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="quantity_delta must be non-zero")
 
+    item_instance = None
+    if payload.item_instance_id is not None:
+        item_instance = db.get(ItemInstance, payload.item_instance_id)
+        if not item_instance or item_instance.part_id != payload.part_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid item_instance_id")
+
     delta = payload.quantity_delta
     if payload.transaction_type.value == "IN":
         if delta < 0:
@@ -61,10 +75,22 @@ def create_transaction(
 
     part.quantity_on_hand = new_qoh
 
+    if item_instance:
+        if payload.transaction_type.value == "OUT":
+            item_instance.status = ItemStatus.ISSUED
+        elif payload.transaction_type.value == "IN":
+            item_instance.status = ItemStatus.AVAILABLE
+
     tx = StockTransaction(
         part_id=payload.part_id,
         supplier_id=payload.supplier_id,
         created_by_user_id=current_user.id,
+        request_id=payload.request_id,
+        technician_id=payload.technician_id,
+        customer_id=payload.customer_id,
+        job_id=payload.job_id,
+        item_instance_id=payload.item_instance_id,
+        movement_type=payload.movement_type,
         transaction_type=ModelStockTransactionType(payload.transaction_type.value),
         quantity_delta=delta,
         notes=payload.notes,

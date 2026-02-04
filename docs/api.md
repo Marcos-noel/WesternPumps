@@ -10,6 +10,7 @@ The backend exposes a REST API via FastAPI.
 - `POST /auth/login` (form-encoded)
 - `POST /auth/bootstrap` (JSON)
 - `GET /users/me` (requires auth)
+- `GET /users` (admin only)
 - `POST /users` (admin only)
 
 ## Customers
@@ -33,6 +34,10 @@ The backend exposes a REST API via FastAPI.
 - `GET /api/items` (paginated, supports search and sorting)
 - `POST /api/items`
 - `PUT /api/items/{item_id}`
+- `GET /api/items/{item_id}/qr` (SVG QR code)
+- `GET /api/items/{item_id}/instances`
+- `POST /api/items/{item_id}/instances`
+- `POST /api/items/{item_id}/instances/bulk`
 - `GET /api/stock/low` (low-stock list)
 
 ## Suppliers
@@ -46,6 +51,29 @@ The backend exposes a REST API via FastAPI.
 
 - `GET /api/stock/transactions` (filterable by `part_id`)
 - `POST /api/stock/transactions`
+
+## Categories & locations
+
+- `GET /api/categories`
+- `POST /api/categories`
+- `PATCH /api/categories/{category_id}`
+- `GET /api/locations`
+- `POST /api/locations`
+- `PATCH /api/locations/{location_id}`
+
+## Stock requests
+
+- `GET /api/requests`
+- `POST /api/requests`
+- `POST /api/requests/{request_id}/approve`
+- `POST /api/requests/{request_id}/reject`
+- `POST /api/requests/{request_id}/issue`
+- `POST /api/requests/usage`
+
+## Reports
+
+- `GET /api/reports/stock-level?format=excel|pdf|docx`
+- `GET /api/reports/stock-movement?format=excel|pdf|docx`
 
 ## Patterns
 

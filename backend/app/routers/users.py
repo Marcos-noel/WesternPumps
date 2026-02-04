@@ -14,11 +14,20 @@ from app.security import get_password_hash
 router = APIRouter(prefix="/users", tags=["users"])
 
 
+@router.get("", response_model=list[UserRead], dependencies=[Depends(require_admin)])
+def list_users(db: Session = Depends(get_db)) -> list[UserRead]:
+    users = db.scalars(select(User).order_by(User.id)).all()
+    return [UserRead.model_validate(u, from_attributes=True) for u in users]
+
+
 @router.post("", response_model=UserRead, dependencies=[Depends(require_admin)])
 def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> UserRead:
     existing = db.scalar(select(User).where(User.email == str(payload.email).lower()))
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+
+    if payload.role not in {"admin", "technician", "store_manager", "manager", "approver", "staff"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
 
     try:
         password_hash = get_password_hash(payload.password)

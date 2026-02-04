@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
     auto_create_tables: bool = True
+    disable_auth: bool = True
+    approval_threshold_manager: float = 5000
+    approval_threshold_admin: float = 20000
 
 
 settings = Settings()

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Button, Card, Checkbox, Form, Input, Space, Table, Tag, Typography } from "antd";
 import { createSupplier, deactivateSupplier, listSuppliers, updateSupplier } from "../api/suppliers";
 import type { Supplier } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
@@ -60,8 +61,7 @@ export default function SuppliersPage() {
     setFormError(null);
   }
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSave() {
     setFormError(null);
 
     const nameValue = name.trim();
@@ -110,105 +110,110 @@ export default function SuppliersPage() {
     }
   }
 
+  const columns = useMemo(
+    () => [
+      { title: "Name", dataIndex: "name", key: "name" },
+      { title: "Contact", dataIndex: "contact_name", key: "contact_name" },
+      { title: "Phone", dataIndex: "phone", key: "phone" },
+      { title: "Email", dataIndex: "email", key: "email" },
+      {
+        title: "Status",
+        dataIndex: "is_active",
+        key: "is_active",
+        render: (value: boolean) => (value ? <Tag color="green">Active</Tag> : <Tag color="red">Inactive</Tag>)
+      },
+      {
+        title: "Actions",
+        key: "actions",
+        render: (_: unknown, supplier: Supplier) => (
+          <Space>
+            <Button onClick={() => startEdit(supplier)} disabled={saving}>
+              Edit
+            </Button>
+            <Button onClick={() => toggleActive(supplier)} disabled={saving}>
+              {supplier.is_active ? "Deactivate" : "Reactivate"}
+            </Button>
+          </Space>
+        )
+      }
+    ],
+    [saving]
+  );
+
   return (
     <div className="container">
-      <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-        <div>
-          <h2 style={{ marginBottom: 4 }}>Suppliers</h2>
-          <p className="muted" style={{ marginTop: 0 }}>
-            {loading ? "Loading..." : `${activeCount} active supplier${activeCount === 1 ? "" : "s"}`}
-          </p>
-        </div>
-        <div className="row">
-          <button className="btn secondary" type="button" onClick={refresh} disabled={loading}>
-            Refresh
-          </button>
-        </div>
-      </div>
+      <Typography.Title level={2} style={{ marginTop: 0 }}>
+        Suppliers
+      </Typography.Title>
+      <Space style={{ marginBottom: 12 }} size="middle">
+        <Typography.Text type="secondary">
+          {loading ? "Loading..." : `${activeCount} active supplier${activeCount === 1 ? "" : "s"}`}
+        </Typography.Text>
+        <Button onClick={refresh} disabled={loading}>
+          Refresh
+        </Button>
+      </Space>
 
       <div className="grid">
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>{editing ? "Edit supplier" : "Add supplier"}</h3>
-          <form onSubmit={handleSave}>
-            <div className="grid">
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label>Name</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} required />
-              </div>
-              <div>
-                <label>Contact</label>
-                <input value={contactName} onChange={(e) => setContactName(e.target.value)} />
-              </div>
-              <div>
-                <label>Phone</label>
-                <input value={phone} onChange={(e) => setPhone(e.target.value)} />
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label>Email</label>
-                <input value={email} onChange={(e) => setEmail(e.target.value)} />
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label>Notes</label>
-                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
-              </div>
-            </div>
+        <Card title={editing ? "Edit supplier" : "Add supplier"}>
+          <Form layout="vertical" onFinish={handleSave}>
+            <Form.Item label="Name" required>
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </Form.Item>
+            <Form.Item label="Contact">
+              <Input value={contactName} onChange={(e) => setContactName(e.target.value)} />
+            </Form.Item>
+            <Form.Item label="Phone">
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </Form.Item>
+            <Form.Item label="Email">
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} />
+            </Form.Item>
+            <Form.Item label="Notes">
+              <Input.TextArea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
+            </Form.Item>
 
-            {formError ? <p className="error">{formError}</p> : null}
+            {formError ? <Typography.Text type="danger">{formError}</Typography.Text> : null}
 
-            <div className="row" style={{ marginTop: 12, justifyContent: "space-between" }}>
-              <div className="row">
-                <button className="btn" type="submit" disabled={saving}>
-                  {editing ? "Save changes" : "Create supplier"}
-                </button>
-                {editing ? (
-                  <button className="btn secondary" type="button" onClick={resetForm} disabled={saving}>
-                    Cancel
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          </form>
-        </div>
+            <Space style={{ marginTop: 12 }}>
+              <Button type="primary" htmlType="submit" disabled={saving}>
+                {editing ? "Save changes" : "Create supplier"}
+              </Button>
+              {editing ? (
+                <Button onClick={resetForm} disabled={saving}>
+                  Cancel
+                </Button>
+              ) : null}
+            </Space>
+          </Form>
+        </Card>
 
-        <div className="card">
-          <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-            <h3 style={{ margin: 0 }}>Supplier list</h3>
-            <label className="row" style={{ gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={includeInactive}
-                onChange={(e) => setIncludeInactive(e.target.checked)}
-                style={{ width: "auto" }}
-              />
+        <Card
+          title="Supplier list"
+          extra={
+            <Checkbox checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)}>
               Include inactive
-            </label>
-          </div>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setQ(searchInput.trim());
-            }}
-            className="row"
-            style={{ marginTop: 12, justifyContent: "space-between", flexWrap: "wrap" }}
+            </Checkbox>
+          }
+        >
+          <Form
+            layout="inline"
+            onFinish={() => setQ(searchInput.trim())}
+            style={{ marginBottom: 12, flexWrap: "wrap" }}
           >
-            <div style={{ flex: 1, minWidth: 240 }}>
-              <label>Search</label>
-              <input
+            <Form.Item label="Search">
+              <Input
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Search by name or contact"
               />
-            </div>
-            <div style={{ minWidth: 180 }}>
-              <label>&nbsp;</label>
-              <div className="row" style={{ justifyContent: "flex-end" }}>
-                <button className="btn secondary" type="submit" disabled={loading}>
+            </Form.Item>
+            <Form.Item>
+              <Space>
+                <Button htmlType="submit" disabled={loading}>
                   Search
-                </button>
-                <button
-                  className="btn secondary"
-                  type="button"
+                </Button>
+                <Button
                   onClick={() => {
                     setSearchInput("");
                     setQ("");
@@ -216,59 +221,22 @@ export default function SuppliersPage() {
                   disabled={loading && suppliers.length === 0}
                 >
                   Clear
-                </button>
-              </div>
-            </div>
-          </form>
+                </Button>
+              </Space>
+            </Form.Item>
+          </Form>
 
-          {listError ? <p className="error">{listError}</p> : null}
-          {loading ? <p className="muted">Loading...</p> : null}
-          {!loading && suppliers.length === 0 ? <p className="muted">No suppliers found.</p> : null}
+          {listError ? <Typography.Text type="danger">{listError}</Typography.Text> : null}
 
-          {!loading && suppliers.length > 0 ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Contact</th>
-                    <th>Phone</th>
-                    <th>Email</th>
-                    <th>Status</th>
-                    <th style={{ width: 200 }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {suppliers.map((s) => (
-                    <tr key={s.id}>
-                      <td>{s.name}</td>
-                      <td>{s.contact_name ?? ""}</td>
-                      <td>{s.phone ?? ""}</td>
-                      <td>{s.email ?? ""}</td>
-                      <td>
-                        {s.is_active ? (
-                          <span className="badge good">Active</span>
-                        ) : (
-                          <span className="badge low">Inactive</span>
-                        )}
-                      </td>
-                      <td>
-                        <div className="row" style={{ gap: 8 }}>
-                          <button className="btn secondary" type="button" onClick={() => startEdit(s)} disabled={saving}>
-                            Edit
-                          </button>
-                          <button className="btn secondary" type="button" onClick={() => toggleActive(s)} disabled={saving}>
-                            {s.is_active ? "Deactivate" : "Reactivate"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </div>
+          <Table
+            rowKey="id"
+            loading={loading}
+            dataSource={suppliers}
+            columns={columns}
+            pagination={false}
+            locale={{ emptyText: "No suppliers found." }}
+          />
+        </Card>
       </div>
     </div>
   );

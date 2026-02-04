@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Button, Card, Form, Input, Select, Table, Typography } from "antd";
 import { listCustomers } from "../api/customers";
 import { createJob, listJobs } from "../api/jobs";
 import type { Customer, Job } from "../api/types";
@@ -32,8 +33,7 @@ export default function JobsPage() {
     refresh();
   }, []);
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleCreate() {
     setError(null);
     if (customerId === "") {
       setError("Select a customer");
@@ -54,82 +54,75 @@ export default function JobsPage() {
     }
   }
 
-  const customerNameById = new Map(customers.map((c) => [c.id, c.name]));
+  const customerNameById = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
+
+  const columns = useMemo(
+    () => [
+      { title: "ID", dataIndex: "id", key: "id" },
+      {
+        title: "Customer",
+        dataIndex: "customer_id",
+        key: "customer_id",
+        render: (value: number) => customerNameById.get(value) ?? value
+      },
+      { title: "Title", dataIndex: "title", key: "title" },
+      { title: "Status", dataIndex: "status", key: "status" },
+      { title: "Priority", dataIndex: "priority", key: "priority" }
+    ],
+    [customerNameById]
+  );
 
   return (
     <div className="container">
-      <h2>Jobs</h2>
+      <Typography.Title level={2} style={{ marginTop: 0 }}>
+        Jobs
+      </Typography.Title>
       <div className="grid">
-        <div className="card">
-          <h3>Create job</h3>
-          <form onSubmit={handleCreate}>
-            <div className="grid">
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label>Customer</label>
-                <select value={customerId} onChange={(e) => setCustomerId(e.target.value ? Number(e.target.value) : "")}>
-                  <option value="">Select...</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label>Title</label>
-                <input value={title} onChange={(e) => setTitle(e.target.value)} required />
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label>Description</label>
-                <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
-              </div>
-            </div>
-            <div className="row" style={{ marginTop: 12 }}>
-              <button className="btn" type="submit">
-                Create
-              </button>
-            </div>
-          </form>
-          {error ? <p className="error">{error}</p> : null}
-        </div>
+        <Card title="Create job">
+          <Form layout="vertical" onFinish={handleCreate}>
+            <Form.Item label="Customer" required>
+              <Select<number>
+                value={customerId === "" ? undefined : customerId}
+                onChange={(value) => setCustomerId(value)}
+                placeholder="Select..."
+              >
+                {customers.map((c) => (
+                  <Select.Option key={c.id} value={c.id}>
+                    {c.name}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+            <Form.Item label="Title" required>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+            </Form.Item>
+            <Form.Item label="Description">
+              <Input.TextArea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
+            </Form.Item>
+            <Button type="primary" htmlType="submit">
+              Create
+            </Button>
+          </Form>
+          {error ? <Typography.Text type="danger">{error}</Typography.Text> : null}
+        </Card>
 
-        <div className="card">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <h3 style={{ margin: 0 }}>Job list</h3>
-            <button className="btn secondary" onClick={refresh} disabled={loading}>
+        <Card
+          title="Job list"
+          extra={
+            <Button onClick={refresh} disabled={loading}>
               Refresh
-            </button>
-          </div>
-          {loading ? <p className="muted">Loading...</p> : null}
-          {!loading && jobs.length === 0 ? <p className="muted">No jobs yet.</p> : null}
-
-          {!loading && jobs.length > 0 ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Customer</th>
-                    <th>Title</th>
-                    <th>Status</th>
-                    <th>Priority</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobs.map((j) => (
-                    <tr key={j.id}>
-                      <td>{j.id}</td>
-                      <td>{customerNameById.get(j.customer_id) ?? j.customer_id}</td>
-                      <td>{j.title}</td>
-                      <td>{j.status}</td>
-                      <td>{j.priority}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </div>
+            </Button>
+          }
+        >
+          <Table
+            rowKey="id"
+            loading={loading}
+            dataSource={jobs}
+            columns={columns}
+            pagination={false}
+            locale={{ emptyText: "No jobs yet." }}
+          />
+        </Card>
       </div>
     </div>
   );

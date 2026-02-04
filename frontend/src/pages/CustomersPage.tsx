@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Button, Card, Form, Input, Table, Typography } from "antd";
 import { createCustomer, listCustomers } from "../api/customers";
 import type { Customer } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
@@ -29,8 +30,7 @@ export default function CustomersPage() {
     refresh();
   }, []);
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleCreate() {
     setError(null);
     try {
       await createCustomer({
@@ -49,75 +49,60 @@ export default function CustomersPage() {
     }
   }
 
+  const columns = useMemo(
+    () => [
+      { title: "Name", dataIndex: "name", key: "name" },
+      { title: "Contact", dataIndex: "contact_name", key: "contact_name" },
+      { title: "Phone", dataIndex: "phone", key: "phone" },
+      { title: "Email", dataIndex: "email", key: "email" }
+    ],
+    []
+  );
+
   return (
     <div className="container">
-      <h2>Customers</h2>
+      <Typography.Title level={2} style={{ marginTop: 0 }}>
+        Customers
+      </Typography.Title>
       <div className="grid">
-        <div className="card">
-          <h3>Add customer</h3>
-          <form onSubmit={handleCreate}>
-            <div className="grid">
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label>Name</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} required />
-              </div>
-              <div>
-                <label>Contact</label>
-                <input value={contactName} onChange={(e) => setContactName(e.target.value)} />
-              </div>
-              <div>
-                <label>Phone</label>
-                <input value={phone} onChange={(e) => setPhone(e.target.value)} />
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label>Email</label>
-                <input value={email} onChange={(e) => setEmail(e.target.value)} />
-              </div>
-            </div>
-            <div className="row" style={{ marginTop: 12 }}>
-              <button className="btn" type="submit">
-                Create
-              </button>
-            </div>
-          </form>
-          {error ? <p className="error">{error}</p> : null}
-        </div>
+        <Card title="Add customer">
+          <Form layout="vertical" onFinish={handleCreate}>
+            <Form.Item label="Name" required>
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </Form.Item>
+            <Form.Item label="Contact">
+              <Input value={contactName} onChange={(e) => setContactName(e.target.value)} />
+            </Form.Item>
+            <Form.Item label="Phone">
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </Form.Item>
+            <Form.Item label="Email">
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} />
+            </Form.Item>
+            <Button type="primary" htmlType="submit">
+              Create
+            </Button>
+          </Form>
+          {error ? <Typography.Text type="danger">{error}</Typography.Text> : null}
+        </Card>
 
-        <div className="card">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <h3 style={{ margin: 0 }}>Customer list</h3>
-            <button className="btn secondary" onClick={refresh} disabled={loading}>
+        <Card
+          title="Customer list"
+          extra={
+            <Button onClick={refresh} disabled={loading}>
               Refresh
-            </button>
-          </div>
-          {loading ? <p className="muted">Loading...</p> : null}
-          {!loading && customers.length === 0 ? <p className="muted">No customers yet.</p> : null}
-
-          {!loading && customers.length > 0 ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Contact</th>
-                    <th>Phone</th>
-                    <th>Email</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {customers.map((c) => (
-                    <tr key={c.id}>
-                      <td>{c.name}</td>
-                      <td>{c.contact_name ?? ""}</td>
-                      <td>{c.phone ?? ""}</td>
-                      <td>{c.email ?? ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </div>
+            </Button>
+          }
+        >
+          <Table
+            rowKey="id"
+            loading={loading}
+            dataSource={customers}
+            columns={columns}
+            pagination={false}
+            locale={{ emptyText: "No customers yet." }}
+          />
+        </Card>
       </div>
     </div>
   );

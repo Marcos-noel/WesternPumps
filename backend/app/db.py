@@ -45,6 +45,14 @@ def ensure_schema(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE parts ADD COLUMN min_quantity INTEGER NOT NULL DEFAULT 0"))
         if "supplier_id" not in existing_columns:
             conn.execute(text("ALTER TABLE parts ADD COLUMN supplier_id INTEGER NULL"))
+        if "tracking_type" not in existing_columns:
+            conn.execute(text("ALTER TABLE parts ADD COLUMN tracking_type VARCHAR(20) NOT NULL DEFAULT 'BATCH'"))
+        if "unit_of_measure" not in existing_columns:
+            conn.execute(text("ALTER TABLE parts ADD COLUMN unit_of_measure VARCHAR(50) NULL"))
+        if "category_id" not in existing_columns:
+            conn.execute(text("ALTER TABLE parts ADD COLUMN category_id INTEGER NULL"))
+        if "location_id" not in existing_columns:
+            conn.execute(text("ALTER TABLE parts ADD COLUMN location_id INTEGER NULL"))
 
     # Create an index for supplier_id if missing (matches SQLAlchemy default name).
     indexes = inspector.get_indexes("parts")
@@ -52,6 +60,25 @@ def ensure_schema(engine: Engine) -> None:
     if not has_supplier_index:
         with engine.begin() as conn:
             conn.execute(text("CREATE INDEX ix_parts_supplier_id ON parts (supplier_id)"))
+
+    # Patch forward stock_transactions columns for request workflows.
+    if not inspector.has_table("stock_transactions"):
+        return
+
+    tx_columns = {c["name"] for c in inspector.get_columns("stock_transactions")}
+    with engine.begin() as conn:
+        if "request_id" not in tx_columns:
+            conn.execute(text("ALTER TABLE stock_transactions ADD COLUMN request_id INTEGER NULL"))
+        if "technician_id" not in tx_columns:
+            conn.execute(text("ALTER TABLE stock_transactions ADD COLUMN technician_id INTEGER NULL"))
+        if "customer_id" not in tx_columns:
+            conn.execute(text("ALTER TABLE stock_transactions ADD COLUMN customer_id INTEGER NULL"))
+        if "job_id" not in tx_columns:
+            conn.execute(text("ALTER TABLE stock_transactions ADD COLUMN job_id INTEGER NULL"))
+        if "item_instance_id" not in tx_columns:
+            conn.execute(text("ALTER TABLE stock_transactions ADD COLUMN item_instance_id INTEGER NULL"))
+        if "movement_type" not in tx_columns:
+            conn.execute(text("ALTER TABLE stock_transactions ADD COLUMN movement_type VARCHAR(20) NULL"))
 
 
 def get_db() -> Generator[Session, None, None]:

@@ -1,8 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { createItem, listItems, listLowStock, updateItem } from "../api/items";
+import { Button, Card, Checkbox, Form, Input, Modal, Select, Space, Table, Tag, Typography } from "antd";
+import {
+  bulkCreateItemInstances,
+  createItem,
+  getItemQrSvg,
+  listItemInstances,
+  listItems,
+  listLowStock,
+  updateItem
+} from "../api/items";
+import { listCategories } from "../api/categories";
+import { listLocations } from "../api/locations";
 import { listSuppliers } from "../api/suppliers";
 import { createStockTransaction, listStockTransactions } from "../api/stock";
-import type { Item, StockTransaction, StockTransactionType, Supplier } from "../api/types";
+import type { Category, Item, ItemInstance, Location, StockTransaction, StockTransactionType, Supplier } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
 
 type SortField = "name" | "sku" | "quantity_on_hand" | "min_quantity" | "created_at" | "updated_at";
@@ -26,6 +37,33 @@ function toFloat(value: string): number | null {
   return n;
 }
 
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const text = String(value);
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, "\"\"")}"`;
+  return text;
+}
+
+function buildCsv(headers: string[], rows: Array<Array<string | number | null | undefined>>): string {
+  const lines = [headers.map(csvCell).join(",")];
+  for (const row of rows) {
+    lines.push(row.map(csvCell).join(","));
+  }
+  return lines.join("\n");
+}
+
+function downloadTextFile(filename: string, content: string, type = "text/plain") {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function InventoryPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [total, setTotal] = useState(0);
@@ -34,6 +72,8 @@ export default function InventoryPage() {
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const suppliersById = useMemo(() => new Map(suppliers.map((s) => [s.id, s])), [suppliers]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -42,6 +82,8 @@ export default function InventoryPage() {
   const [searchInput, setSearchInput] = useState("");
   const [q, setQ] = useState("");
   const [lowOnly, setLowOnly] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
 
@@ -50,6 +92,22 @@ export default function InventoryPage() {
       setSuppliers(await listSuppliers({ include_inactive: true }));
     } catch {
       // Non-critical: inventory can still function without supplier names loaded.
+    }
+  }, []);
+
+  const refreshCategories = useCallback(async () => {
+    try {
+      setCategories(await listCategories({ include_inactive: true }));
+    } catch {
+      // Optional
+    }
+  }, []);
+
+  const refreshLocations = useCallback(async () => {
+    try {
+      setLocations(await listLocations({ include_inactive: true }));
+    } catch {
+      // Optional
     }
   }, []);
 
@@ -87,6 +145,14 @@ export default function InventoryPage() {
     refreshSuppliers();
   }, [refreshSuppliers]);
 
+  useEffect(() => {
+    refreshCategories();
+  }, [refreshCategories]);
+
+  useEffect(() => {
+    refreshLocations();
+  }, [refreshLocations]);
+
   function toggleSort(field: SortField) {
     setPage(1);
     if (sort === field) {
@@ -105,6 +171,10 @@ export default function InventoryPage() {
     setUnitPrice("");
     setQuantityOnHand("0");
     setMinQuantity("0");
+    setTrackingType("BATCH");
+    setUnitOfMeasure("");
+    setCategoryId("");
+    setLocationId("");
     setSupplierId("");
     setFormError(null);
   }
@@ -116,6 +186,10 @@ export default function InventoryPage() {
   const [unitPrice, setUnitPrice] = useState("");
   const [quantityOnHand, setQuantityOnHand] = useState("0");
   const [minQuantity, setMinQuantity] = useState("0");
+  const [trackingType, setTrackingType] = useState<"BATCH" | "INDIVIDUAL">("BATCH");
+  const [unitOfMeasure, setUnitOfMeasure] = useState("");
+  const [categoryId, setCategoryId] = useState<number | "">("");
+  const [locationId, setLocationId] = useState<number | "">("");
   const [supplierId, setSupplierId] = useState<number | "">("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -128,12 +202,15 @@ export default function InventoryPage() {
     setUnitPrice(item.unit_price == null ? "" : String(item.unit_price));
     setQuantityOnHand(String(item.quantity_on_hand));
     setMinQuantity(String(item.min_quantity));
+    setTrackingType((item.tracking_type as "BATCH" | "INDIVIDUAL") ?? "BATCH");
+    setUnitOfMeasure(item.unit_of_measure ?? "");
+    setCategoryId(item.category_id ?? "");
+    setLocationId(item.location_id ?? "");
     setSupplierId(item.supplier_id ?? "");
     setFormError(null);
   }
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSave() {
     setFormError(null);
 
     const skuValue = sku.trim();
@@ -172,6 +249,10 @@ export default function InventoryPage() {
         unit_price: price,
         quantity_on_hand: qoh,
         min_quantity: minQty,
+        tracking_type: trackingType,
+        unit_of_measure: unitOfMeasure.trim() ? unitOfMeasure.trim() : null,
+        category_id: categoryId === "" ? null : Number(categoryId),
+        location_id: locationId === "" ? null : Number(locationId),
         supplier_id: supplierId === "" ? null : Number(supplierId)
       };
       if (editing) {
@@ -194,6 +275,109 @@ export default function InventoryPage() {
     return `$${v.toFixed(2)}`;
   }
 
+  const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+
+  const itemColumns = useMemo(() => {
+    const label = (text: string, field: SortField) => (
+      <Button type="link" onClick={() => toggleSort(field)} disabled={lowOnly} style={{ padding: 0 }}>
+        {text} {sort === field ? (direction === "asc" ? "↑" : "↓") : ""}
+      </Button>
+    );
+    return [
+      { title: label("SKU", "sku"), dataIndex: "sku", key: "sku" },
+      { title: label("Name", "name"), dataIndex: "name", key: "name" },
+      {
+        title: "Category",
+        key: "category",
+        render: (_: unknown, item: Item) => (item.category_id ? categoryNameById.get(item.category_id) ?? item.category_id : "")
+      },
+      { title: "Tracking", dataIndex: "tracking_type", key: "tracking_type", render: (value: string) => value ?? "BATCH" },
+      {
+        title: "Supplier",
+        key: "supplier",
+        render: (_: unknown, item: Item) =>
+          item.supplier_id ? suppliersById.get(item.supplier_id)?.name ?? item.supplier_id : ""
+      },
+      {
+        title: label("Qty", "quantity_on_hand"),
+        key: "quantity_on_hand",
+        render: (_: unknown, item: Item) => (
+          <Space size="small">
+            <span>{item.quantity_on_hand}</span>
+            {isLowStock(item) ? <Tag color="red">Low</Tag> : null}
+          </Space>
+        )
+      },
+      { title: label("Min", "min_quantity"), dataIndex: "min_quantity", key: "min_quantity" },
+      { title: "Unit price", dataIndex: "unit_price", key: "unit_price", render: (value: number | null) => formatMoney(value) },
+      {
+        title: "Actions",
+        key: "actions",
+        render: (_: unknown, item: Item) => (
+          <Space wrap>
+            <Button onClick={() => startEdit(item)} disabled={saving}>
+              Edit
+            </Button>
+            <Button onClick={() => openStockModal(item)} disabled={saving}>
+              Stock
+            </Button>
+            {item.tracking_type === "INDIVIDUAL" ? (
+              <Button onClick={() => openInstancesModal(item)} disabled={saving}>
+                Instances
+              </Button>
+            ) : null}
+            <Button onClick={() => openQrModal(item)} disabled={saving}>
+              QR
+            </Button>
+          </Space>
+        )
+      }
+    ];
+  }, [categoryNameById, direction, lowOnly, saving, sort, suppliersById]);
+
+  const transactionColumns = useMemo(
+    () => [
+      { title: "Date", dataIndex: "created_at", key: "created_at", render: (value: string) => formatDateTime(value) },
+      { title: "Type", dataIndex: "transaction_type", key: "transaction_type" },
+      { title: "Delta", dataIndex: "quantity_delta", key: "quantity_delta", render: (value: number) => formatDelta(value) },
+      {
+        title: "Supplier",
+        dataIndex: "supplier_id",
+        key: "supplier_id",
+        render: (value: number | null) => (value ? suppliersById.get(value)?.name ?? value : "")
+      },
+      { title: "Notes", dataIndex: "notes", key: "notes", render: (value: string | null) => value ?? "" }
+    ],
+    [suppliersById]
+  );
+
+  const instanceColumns = useMemo(
+    () => [
+      { title: "Serial", dataIndex: "serial_number", key: "serial_number" },
+      { title: "Status", dataIndex: "status", key: "status" },
+      { title: "Created", dataIndex: "created_at", key: "created_at", render: (value: string) => formatDateTime(value) }
+    ],
+    []
+  );
+
+  const buildItemsCsv = useCallback(
+    (rows: Item[]) =>
+      buildCsv(
+        ["SKU", "Name", "Supplier", "Qty On Hand", "Min Qty", "Unit Price", "Low Stock", "Description"],
+        rows.map((it) => [
+          it.sku,
+          it.name,
+          it.supplier_id ? suppliersById.get(it.supplier_id)?.name ?? it.supplier_id : "",
+          it.quantity_on_hand,
+          it.min_quantity,
+          it.unit_price ?? "",
+          isLowStock(it) ? "Yes" : "No",
+          it.description ?? ""
+        ])
+      ),
+    [suppliersById]
+  );
+
   const [stockItem, setStockItem] = useState<Item | null>(null);
   const [stockType, setStockType] = useState<StockTransactionType>("IN");
   const [stockQty, setStockQty] = useState("1");
@@ -203,6 +387,18 @@ export default function InventoryPage() {
   const [stockError, setStockError] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<StockTransaction[]>([]);
   const [txLoading, setTxLoading] = useState(false);
+  const [txExporting, setTxExporting] = useState(false);
+
+  const [qrItem, setQrItem] = useState<Item | null>(null);
+  const [qrSvg, setQrSvg] = useState<string | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrError, setQrError] = useState<string | null>(null);
+
+  const [instancesItem, setInstancesItem] = useState<Item | null>(null);
+  const [instances, setInstances] = useState<ItemInstance[]>([]);
+  const [instancesLoading, setInstancesLoading] = useState(false);
+  const [instancesError, setInstancesError] = useState<string | null>(null);
+  const [bulkQty, setBulkQty] = useState("1");
 
   const loadTransactions = useCallback(async (partId: number) => {
     setTxLoading(true);
@@ -255,8 +451,160 @@ export default function InventoryPage() {
     return date.toLocaleString();
   }
 
-  async function handlePostStock(e: React.FormEvent) {
-    e.preventDefault();
+  const qrDataUrl = useMemo(
+    () => (qrSvg ? `data:image/svg+xml;utf8,${encodeURIComponent(qrSvg)}` : ""),
+    [qrSvg]
+  );
+  const qrText = useMemo(() => (qrItem ? `SKU:${qrItem.sku}` : ""), [qrItem]);
+
+  const openQrModal = useCallback(
+    async (item: Item) => {
+      setQrItem(item);
+      setQrSvg(null);
+      setQrError(null);
+      setQrLoading(true);
+      try {
+        const svg = await getItemQrSvg(item.id);
+        setQrSvg(svg);
+      } catch (err: any) {
+        setQrError(getApiErrorMessage(err, "Failed to load QR code"));
+      } finally {
+        setQrLoading(false);
+      }
+    },
+    []
+  );
+
+  const closeQrModal = useCallback(() => {
+    setQrItem(null);
+    setQrSvg(null);
+    setQrError(null);
+    setQrLoading(false);
+  }, []);
+
+  const loadInstances = useCallback(async (itemId: number) => {
+    setInstancesLoading(true);
+    setInstancesError(null);
+    try {
+      setInstances(await listItemInstances(itemId));
+    } catch (err: any) {
+      setInstancesError(getApiErrorMessage(err, "Failed to load instances"));
+    } finally {
+      setInstancesLoading(false);
+    }
+  }, []);
+
+  const openInstancesModal = useCallback(
+    async (item: Item) => {
+      setInstancesItem(item);
+      setBulkQty("1");
+      await loadInstances(item.id);
+    },
+    [loadInstances]
+  );
+
+  const closeInstancesModal = useCallback(() => {
+    setInstancesItem(null);
+    setInstances([]);
+    setInstancesError(null);
+    setInstancesLoading(false);
+  }, []);
+
+  async function handleBulkCreate() {
+    if (!instancesItem) return;
+    const qty = toInt(bulkQty);
+    if (qty === null || qty <= 0) {
+      setInstancesError("Quantity must be a whole number > 0");
+      return;
+    }
+    setInstancesLoading(true);
+    setInstancesError(null);
+    try {
+      await bulkCreateItemInstances(instancesItem.id, { quantity: qty });
+      await loadInstances(instancesItem.id);
+      await refresh();
+    } catch (err: any) {
+      setInstancesError(getApiErrorMessage(err, "Failed to create instances"));
+    } finally {
+      setInstancesLoading(false);
+    }
+  }
+
+  async function exportCurrentView() {
+    setReportError(null);
+    const csv = buildItemsCsv(items);
+    const label = lowOnly ? "low-stock" : "current-view";
+    downloadTextFile(`inventory-${label}.csv`, csv, "text/csv");
+  }
+
+  async function exportAllItems() {
+    setReporting(true);
+    setReportError(null);
+    try {
+      const all: Item[] = [];
+      let pageCursor = 1;
+      let totalItems = 0;
+      while (true) {
+        const data = await listItems({
+          page: pageCursor,
+          page_size: 100,
+          q: q || undefined,
+          sort,
+          direction
+        });
+        totalItems = data.total;
+        all.push(...data.items);
+        if (all.length >= totalItems || data.items.length === 0) break;
+        pageCursor += 1;
+      }
+      const csv = buildItemsCsv(all);
+      downloadTextFile("inventory-all.csv", csv, "text/csv");
+    } catch (err: any) {
+      setReportError(getApiErrorMessage(err, "Failed to export inventory"));
+    } finally {
+      setReporting(false);
+    }
+  }
+
+  async function exportLowStock() {
+    setReporting(true);
+    setReportError(null);
+    try {
+      const low = await listLowStock({ limit: 500, q: q || undefined });
+      const csv = buildItemsCsv(low);
+      downloadTextFile("inventory-low-stock.csv", csv, "text/csv");
+    } catch (err: any) {
+      setReportError(getApiErrorMessage(err, "Failed to export low stock"));
+    } finally {
+      setReporting(false);
+    }
+  }
+
+  async function exportTransactions() {
+    if (!stockItem) return;
+    setTxExporting(true);
+    setStockError(null);
+    try {
+      const tx = await listStockTransactions({ part_id: stockItem.id, limit: 200 });
+      const csv = buildCsv(
+        ["Date", "Type", "Delta", "Supplier", "Notes"],
+        tx.map((t) => [
+          formatDateTime(t.created_at),
+          t.transaction_type,
+          t.quantity_delta,
+          t.supplier_id ? suppliersById.get(t.supplier_id)?.name ?? t.supplier_id : "",
+          t.notes ?? ""
+        ])
+      );
+      downloadTextFile(`stock-transactions-${stockItem.sku}.csv`, csv, "text/csv");
+    } catch (err: any) {
+      setStockError(getApiErrorMessage(err, "Failed to export transactions"));
+    } finally {
+      setTxExporting(false);
+    }
+  }
+
+  async function handlePostStock() {
     if (!stockItem) return;
 
     setStockError(null);
@@ -311,122 +659,151 @@ export default function InventoryPage() {
 
   return (
     <div className="container">
-      <h2>Inventory</h2>
+      <Typography.Title level={2} style={{ marginTop: 0 }}>
+        Inventory
+      </Typography.Title>
       <div className="grid">
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>{editing ? "Edit item" : "Add item"}</h3>
-          <form onSubmit={handleSave}>
+        <Card title={editing ? "Edit item" : "Add item"}>
+          <Form layout="vertical" onFinish={handleSave}>
             <div className="grid">
-              <div>
-                <label>SKU</label>
-                <input value={sku} onChange={(e) => setSku(e.target.value)} required />
-              </div>
-              <div>
-                <label>Name</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} required />
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label>Description</label>
-                <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label>Supplier (optional)</label>
-                <select value={supplierId} onChange={(e) => setSupplierId(e.target.value ? Number(e.target.value) : "")}>
-                  <option value="">None</option>
-                  {suppliers.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.is_active ? s.name : `${s.name} (inactive)`}
-                    </option>
+              <Form.Item label="SKU" required>
+                <Input value={sku} onChange={(e) => setSku(e.target.value)} />
+              </Form.Item>
+              <Form.Item label="Name" required>
+                <Input value={name} onChange={(e) => setName(e.target.value)} />
+              </Form.Item>
+              <Form.Item label="Description" style={{ gridColumn: "1 / -1" }}>
+                <Input.TextArea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
+              </Form.Item>
+              <Form.Item label="Tracking">
+                <Select value={trackingType} onChange={(value) => setTrackingType(value)}>
+                  <Select.Option value="BATCH">Batch/Quantity</Select.Option>
+                  <Select.Option value="INDIVIDUAL">Individual (Serialized)</Select.Option>
+                </Select>
+              </Form.Item>
+              <Form.Item label="Unit of measure">
+                <Input value={unitOfMeasure} onChange={(e) => setUnitOfMeasure(e.target.value)} placeholder="e.g. pcs" />
+              </Form.Item>
+              <Form.Item label="Category" style={{ gridColumn: "1 / -1" }}>
+                <Select<number>
+                  value={categoryId === "" ? undefined : categoryId}
+                  onChange={(value) => setCategoryId(value ?? "")}
+                  placeholder="Uncategorized"
+                  allowClear
+                >
+                  {categories.map((c) => (
+                    <Select.Option key={c.id} value={c.id}>
+                      {c.name}
+                    </Select.Option>
                   ))}
-                </select>
-              </div>
-              <div>
-                <label>Unit price</label>
-                <input
+                </Select>
+              </Form.Item>
+              <Form.Item label="Supplier (optional)" style={{ gridColumn: "1 / -1" }}>
+                <Select<number>
+                  value={supplierId === "" ? undefined : supplierId}
+                  onChange={(value) => setSupplierId(value ?? "")}
+                  placeholder="None"
+                  allowClear
+                >
+                  {suppliers.map((s) => (
+                    <Select.Option key={s.id} value={s.id}>
+                      {s.is_active ? s.name : `${s.name} (inactive)`}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item label="Location" style={{ gridColumn: "1 / -1" }}>
+                <Select<number>
+                  value={locationId === "" ? undefined : locationId}
+                  onChange={(value) => setLocationId(value ?? "")}
+                  placeholder="Not set"
+                  allowClear
+                >
+                  {locations.map((l) => (
+                    <Select.Option key={l.id} value={l.id}>
+                      {l.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item label="Unit price">
+                <Input
                   value={unitPrice}
                   onChange={(e) => setUnitPrice(e.target.value)}
                   inputMode="decimal"
                   placeholder="e.g. 12.50"
                 />
-              </div>
-              <div>
-                <label>Qty on hand</label>
-                <input value={quantityOnHand} onChange={(e) => setQuantityOnHand(e.target.value)} inputMode="numeric" />
-              </div>
-              <div>
-                <label>Min qty</label>
-                <input value={minQuantity} onChange={(e) => setMinQuantity(e.target.value)} inputMode="numeric" />
-              </div>
+              </Form.Item>
+              <Form.Item label="Qty on hand">
+                <Input value={quantityOnHand} onChange={(e) => setQuantityOnHand(e.target.value)} inputMode="numeric" />
+              </Form.Item>
+              <Form.Item label="Min qty">
+                <Input value={minQuantity} onChange={(e) => setMinQuantity(e.target.value)} inputMode="numeric" />
+              </Form.Item>
             </div>
 
-            {formError ? <p className="error">{formError}</p> : null}
+            {formError ? <Typography.Text type="danger">{formError}</Typography.Text> : null}
 
-            <div className="row" style={{ marginTop: 12, justifyContent: "space-between" }}>
-              <div className="row">
-                <button className="btn" type="submit" disabled={saving}>
-                  {editing ? "Save changes" : "Create item"}
-                </button>
-                {editing ? (
-                  <button className="btn secondary" type="button" onClick={resetForm} disabled={saving}>
-                    Cancel
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          </form>
-        </div>
+            <Space style={{ marginTop: 12 }}>
+              <Button type="primary" htmlType="submit" disabled={saving}>
+                {editing ? "Save changes" : "Create item"}
+              </Button>
+              {editing ? (
+                <Button onClick={resetForm} disabled={saving}>
+                  Cancel
+                </Button>
+              ) : null}
+            </Space>
+          </Form>
+        </Card>
 
-        <div className="card">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <h3 style={{ margin: 0 }}>Item list</h3>
-            <button className="btn secondary" onClick={refresh} disabled={loading}>
+        <Card
+          title="Item list"
+          extra={
+            <Button onClick={refresh} disabled={loading}>
               Refresh
-            </button>
-          </div>
+            </Button>
+          }
+        >
 
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
+          <Form
+            layout="inline"
+            onFinish={() => {
               setPage(1);
               setQ(searchInput.trim());
             }}
-            className="row"
-            style={{ marginTop: 12, justifyContent: "space-between", flexWrap: "wrap" }}
+            style={{ marginTop: 12, flexWrap: "wrap" }}
           >
-            <div style={{ flex: 1, minWidth: 240 }}>
-              <label>Search</label>
-              <input
+            <Form.Item label="Search">
+              <Input
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Search by SKU or name"
               />
-            </div>
-            <div style={{ minWidth: 160 }}>
-              <label>Page size</label>
-              <select
+            </Form.Item>
+            <Form.Item label="Page size">
+              <Select<number>
                 value={pageSize}
-                onChange={(e) => {
+                onChange={(value) => {
                   setPage(1);
-                  setPageSize(Number(e.target.value));
+                  setPageSize(value);
                 }}
                 disabled={lowOnly}
+                style={{ width: 120 }}
               >
                 {[10, 20, 50, 100].map((n) => (
-                  <option key={n} value={n}>
+                  <Select.Option key={n} value={n}>
                     {n}
-                  </option>
+                  </Select.Option>
                 ))}
-              </select>
-            </div>
-            <div style={{ minWidth: 190 }}>
-              <label>&nbsp;</label>
-              <div className="row" style={{ justifyContent: "flex-end" }}>
-                <button className="btn secondary" type="submit" disabled={loading}>
+              </Select>
+            </Form.Item>
+            <Form.Item>
+              <Space>
+                <Button htmlType="submit" disabled={loading}>
                   Search
-                </button>
-                <button
-                  className="btn secondary"
-                  type="button"
+                </Button>
+                <Button
                   onClick={() => {
                     setSearchInput("");
                     setQ("");
@@ -435,249 +812,221 @@ export default function InventoryPage() {
                   disabled={loading && items.length === 0}
                 >
                   Clear
-                </button>
-              </div>
-            </div>
-            <div style={{ minWidth: 190 }}>
-              <label>&nbsp;</label>
-              <label className="row" style={{ gap: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={lowOnly}
-                  onChange={(e) => {
-                    setPage(1);
-                    setLowOnly(e.target.checked);
-                  }}
-                  style={{ width: "auto" }}
-                />
+                </Button>
+              </Space>
+            </Form.Item>
+            <Form.Item>
+              <Checkbox
+                checked={lowOnly}
+                onChange={(e) => {
+                  setPage(1);
+                  setLowOnly(e.target.checked);
+                }}
+              >
                 Low stock only
-              </label>
-            </div>
-          </form>
+              </Checkbox>
+            </Form.Item>
+          </Form>
 
-          {listError ? <p className="error">{listError}</p> : null}
-          {loading ? <p className="muted">Loading...</p> : null}
-          {!loading && items.length === 0 ? <p className="muted">No items found.</p> : null}
+          {listError ? <Typography.Text type="danger">{listError}</Typography.Text> : null}
 
-          {!loading && items.length > 0 ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>
-                      <button className="th-button" type="button" onClick={() => toggleSort("sku")} disabled={lowOnly}>
-                        SKU {sort === "sku" ? (direction === "asc" ? "^" : "v") : ""}
-                      </button>
-                    </th>
-                    <th>
-                      <button className="th-button" type="button" onClick={() => toggleSort("name")} disabled={lowOnly}>
-                        Name {sort === "name" ? (direction === "asc" ? "^" : "v") : ""}
-                      </button>
-                    </th>
-                    <th>Supplier</th>
-                    <th>
-                      <button
-                        className="th-button"
-                        type="button"
-                        onClick={() => toggleSort("quantity_on_hand")}
-                        disabled={lowOnly}
-                      >
-                        Qty {sort === "quantity_on_hand" ? (direction === "asc" ? "^" : "v") : ""}
-                      </button>
-                    </th>
-                    <th>
-                      <button
-                        className="th-button"
-                        type="button"
-                        onClick={() => toggleSort("min_quantity")}
-                        disabled={lowOnly}
-                      >
-                        Min {sort === "min_quantity" ? (direction === "asc" ? "^" : "v") : ""}
-                      </button>
-                    </th>
-                    <th>Unit price</th>
-                    <th style={{ width: 190 }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((it) => (
-                    <tr key={it.id}>
-                      <td>{it.sku}</td>
-                      <td>{it.name}</td>
-                      <td>{it.supplier_id ? suppliersById.get(it.supplier_id)?.name ?? it.supplier_id : ""}</td>
-                      <td>
-                        <div className="row" style={{ gap: 8 }}>
-                          <span>{it.quantity_on_hand}</span>
-                          {isLowStock(it) ? <span className="badge low">Low</span> : null}
-                        </div>
-                      </td>
-                      <td>{it.min_quantity}</td>
-                      <td>{formatMoney(it.unit_price)}</td>
-                      <td>
-                        <div className="row" style={{ gap: 8 }}>
-                          <button className="btn secondary" type="button" onClick={() => startEdit(it)} disabled={saving}>
-                            Edit
-                          </button>
-                          <button
-                            className="btn secondary"
-                            type="button"
-                            onClick={() => openStockModal(it)}
-                            disabled={saving}
-                          >
-                            Stock
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
+          <Table
+            rowKey="id"
+            loading={loading}
+            dataSource={items}
+            columns={itemColumns}
+            pagination={false}
+            locale={{ emptyText: lowOnly ? "No low stock items." : "No items found." }}
+          />
 
           {!loading && !lowOnly ? (
-            <div className="row" style={{ marginTop: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
-              <p className="muted" style={{ margin: 0 }}>
+            <Space style={{ marginTop: 12, display: "flex", justifyContent: "space-between" }}>
+              <Typography.Text type="secondary">
                 Page {page} of {totalPages} | Total {total}
-              </p>
-              <div className="row">
-                <button
-                  className="btn secondary"
-                  type="button"
-                  disabled={loading || page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
+              </Typography.Text>
+              <Space>
+                <Button disabled={loading || page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
                   Prev
-                </button>
-                <button
-                  className="btn secondary"
-                  type="button"
-                  disabled={loading || page >= totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                >
+                </Button>
+                <Button disabled={loading || page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
                   Next
-                </button>
-              </div>
-            </div>
+                </Button>
+              </Space>
+            </Space>
           ) : null}
-        </div>
+        </Card>
+
+        <Card title="Reports" style={{ gridColumn: "1 / -1" }}>
+          <Typography.Text type="secondary">Export inventory data as CSV for reporting or sharing.</Typography.Text>
+          <Space wrap style={{ marginTop: 8 }}>
+            <Button onClick={exportCurrentView} disabled={loading || items.length === 0}>
+              Export current view
+            </Button>
+            <Button onClick={exportAllItems} disabled={reporting}>
+              Export all items
+            </Button>
+            <Button onClick={exportLowStock} disabled={reporting}>
+              Export low stock
+            </Button>
+          </Space>
+          {reportError ? <Typography.Text type="danger">{reportError}</Typography.Text> : null}
+        </Card>
       </div>
 
-      {stockItem ? (
-        <div className="modal-backdrop" onMouseDown={closeStockModal}>
-          <div className="modal" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <div>
-                <h3 style={{ margin: 0 }}>Stock movement</h3>
-                <p className="muted" style={{ marginTop: 4, marginBottom: 0 }}>
-                  {stockItem.sku} — {stockItem.name}
-                </p>
-              </div>
-              <button className="btn secondary" type="button" onClick={closeStockModal} disabled={stockSaving}>
-                Close
-              </button>
-            </div>
+      <Modal open={!!stockItem} onCancel={closeStockModal} footer={null} title="Stock movement" width={900}>
+        {stockItem ? (
+          <div>
+            <Typography.Text type="secondary">
+              {stockItem.sku} — {stockItem.name}
+            </Typography.Text>
 
-            <div className="row" style={{ marginTop: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
-              <p className="muted" style={{ margin: 0 }}>
+            <Space style={{ marginTop: 12, display: "flex", justifyContent: "space-between" }}>
+              <Typography.Text type="secondary">
                 On hand: <strong>{stockItem.quantity_on_hand}</strong> | Min: <strong>{stockItem.min_quantity}</strong>
-              </p>
-              {isLowStock(stockItem) ? (
-                <span className="badge low">Low stock</span>
-              ) : (
-                <span className="badge good">OK</span>
-              )}
-            </div>
+              </Typography.Text>
+              {isLowStock(stockItem) ? <Tag color="red">Low stock</Tag> : <Tag color="green">OK</Tag>}
+            </Space>
 
-            <div className="card" style={{ marginTop: 12, padding: 12 }}>
-              <form onSubmit={handlePostStock}>
-                <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
-                  <div style={{ minWidth: 160 }}>
-                    <label>Type</label>
-                    <select value={stockType} onChange={(e) => setStockType(e.target.value as StockTransactionType)}>
-                      <option value="IN">Receive</option>
-                      <option value="OUT">Issue</option>
-                      <option value="ADJUST">Adjust</option>
-                    </select>
-                  </div>
-                  <div style={{ minWidth: 160 }}>
-                    <label>{stockType === "ADJUST" ? "Adjust by (+/-)" : "Quantity"}</label>
-                    <input
+            <Card style={{ marginTop: 12 }}>
+              <Form layout="vertical" onFinish={handlePostStock}>
+                <Space wrap align="end">
+                  <Form.Item label="Type">
+                    <Select value={stockType} onChange={(value) => setStockType(value as StockTransactionType)}>
+                      <Select.Option value="IN">Receive</Select.Option>
+                      <Select.Option value="OUT">Issue</Select.Option>
+                      <Select.Option value="ADJUST">Adjust</Select.Option>
+                    </Select>
+                  </Form.Item>
+                  <Form.Item label={stockType === "ADJUST" ? "Adjust by (+/-)" : "Quantity"}>
+                    <Input
                       type="number"
                       step={1}
                       min={stockType === "ADJUST" ? undefined : 1}
                       value={stockQty}
                       onChange={(e) => setStockQty(e.target.value)}
                     />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 220 }}>
-                    <label>Supplier (optional)</label>
-                    <select
-                      value={stockSupplierId}
-                      onChange={(e) => setStockSupplierId(e.target.value ? Number(e.target.value) : "")}
+                  </Form.Item>
+                  <Form.Item label="Supplier (optional)" style={{ minWidth: 220, flex: 1 }}>
+                    <Select<number>
+                      value={stockSupplierId === "" ? undefined : stockSupplierId}
+                      onChange={(value) => setStockSupplierId(value ?? "")}
+                      placeholder="None"
+                      allowClear
                     >
-                      <option value="">None</option>
                       {suppliers.map((s) => (
-                        <option key={s.id} value={s.id}>
+                        <Select.Option key={s.id} value={s.id}>
                           {s.is_active ? s.name : `${s.name} (inactive)`}
-                        </option>
+                        </Select.Option>
                       ))}
-                    </select>
-                  </div>
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  <label>Notes (optional)</label>
-                  <input value={stockNotes} onChange={(e) => setStockNotes(e.target.value)} placeholder="e.g. PO #1234" />
-                </div>
+                    </Select>
+                  </Form.Item>
+                </Space>
+                <Form.Item label="Notes (optional)">
+                  <Input value={stockNotes} onChange={(e) => setStockNotes(e.target.value)} placeholder="e.g. PO #1234" />
+                </Form.Item>
 
-                {stockError ? <p className="error">{stockError}</p> : null}
+                {stockError ? <Typography.Text type="danger">{stockError}</Typography.Text> : null}
 
-                <div className="row" style={{ marginTop: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
-                  <p className="muted" style={{ margin: 0 }}>
-                    This will add a transaction to the stock ledger.
-                  </p>
-                  <button className="btn" type="submit" disabled={stockSaving}>
+                <Space style={{ marginTop: 12, display: "flex", justifyContent: "space-between" }}>
+                  <Typography.Text type="secondary">This will add a transaction to the stock ledger.</Typography.Text>
+                  <Button type="primary" htmlType="submit" disabled={stockSaving}>
                     Post
-                  </button>
-                </div>
-              </form>
-            </div>
+                  </Button>
+                </Space>
+              </Form>
+            </Card>
 
-            <div style={{ marginTop: 14 }}>
-              <h4 style={{ marginTop: 0 }}>Recent transactions</h4>
-              {txLoading ? <p className="muted">Loading transactions...</p> : null}
-              {!txLoading && transactions.length === 0 ? <p className="muted">No transactions yet.</p> : null}
-
-              {!txLoading && transactions.length > 0 ? (
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Type</th>
-                        <th>Delta</th>
-                        <th>Supplier</th>
-                        <th>Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {transactions.map((t) => (
-                        <tr key={t.id}>
-                          <td>{formatDateTime(t.created_at)}</td>
-                          <td>{t.transaction_type}</td>
-                          <td>{formatDelta(t.quantity_delta)}</td>
-                          <td>{t.supplier_id ? suppliersById.get(t.supplier_id)?.name ?? t.supplier_id : ""}</td>
-                          <td>{t.notes ?? ""}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
-            </div>
+            <Space style={{ marginTop: 14, display: "flex", justifyContent: "space-between" }}>
+              <Typography.Title level={4} style={{ margin: 0 }}>
+                Recent transactions
+              </Typography.Title>
+              <Button onClick={exportTransactions} disabled={txExporting || txLoading}>
+                Export CSV
+              </Button>
+            </Space>
+            <Table
+              rowKey="id"
+              loading={txLoading}
+              dataSource={transactions}
+              columns={transactionColumns}
+              pagination={false}
+              locale={{ emptyText: "No transactions yet." }}
+            />
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </Modal>
+
+      <Modal open={!!qrItem} onCancel={closeQrModal} footer={null} title="Item QR code" width={520}>
+        {qrItem ? (
+          <div>
+            <Typography.Text type="secondary">
+              {qrItem.sku} — {qrItem.name}
+            </Typography.Text>
+
+            {qrLoading ? (
+              <Typography.Text type="secondary" style={{ display: "block", marginTop: 12 }}>
+                Generating QR code...
+              </Typography.Text>
+            ) : null}
+            {qrError ? <Typography.Text type="danger">{qrError}</Typography.Text> : null}
+
+            {qrSvg ? (
+              <div style={{ marginTop: 12 }}>
+                <Card style={{ display: "flex", justifyContent: "center" }}>
+                  <img src={qrDataUrl} alt={`QR for ${qrItem.sku}`} style={{ width: 220, height: 220 }} />
+                </Card>
+                <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>
+                  Encoded value: <strong>{qrText}</strong>
+                </Typography.Text>
+                <Space>
+                  <Button onClick={() => downloadTextFile(`qr-${qrItem.sku}.svg`, qrSvg, "image/svg+xml")}>
+                    Download SVG
+                  </Button>
+                  <Button onClick={() => navigator.clipboard?.writeText(qrText)}>Copy value</Button>
+                </Space>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal open={!!instancesItem} onCancel={closeInstancesModal} footer={null} title="Item instances" width={700}>
+        {instancesItem ? (
+          <div>
+            <Typography.Text type="secondary">
+              {instancesItem.sku} — {instancesItem.name}
+            </Typography.Text>
+
+            <Card style={{ marginTop: 12 }}>
+              <Form layout="vertical">
+                <Space align="end" wrap>
+                  <Form.Item label="Generate quantity">
+                    <Input value={bulkQty} onChange={(e) => setBulkQty(e.target.value)} inputMode="numeric" />
+                  </Form.Item>
+                  <Button onClick={handleBulkCreate} disabled={instancesLoading}>
+                    Generate
+                  </Button>
+                </Space>
+                <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>
+                  New instances will be created with unique serial numbers and QR codes.
+                </Typography.Text>
+              </Form>
+            </Card>
+
+            {instancesError ? <Typography.Text type="danger">{instancesError}</Typography.Text> : null}
+
+            <Table
+              rowKey="id"
+              loading={instancesLoading}
+              dataSource={instances}
+              columns={instanceColumns}
+              pagination={false}
+              style={{ marginTop: 12 }}
+              locale={{ emptyText: "No instances yet." }}
+            />
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }
