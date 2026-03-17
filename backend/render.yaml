@@ -1,6 +1,7 @@
 services:
   - type: web
     name: westernpumps-backend
+    rootDir: backend
     env: python
     region: oregon
     buildCommand: pip install -r requirements.txt
