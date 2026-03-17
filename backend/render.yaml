@@ -15,7 +15,13 @@ services:
         value: "https://western-pumps-np2i.vercel.app,https://westernpumps-vk0u.onrender.com"
       - key: DISABLE_AUTH
         value: "false"
-      - key: AUTO_CREATE_TABLES
+      - key: ENABLE_AUTH_BOOTSTRAP
         value: "true"
+      - key: SEED_ADMIN_EMAIL
+        value: "marcosngeso20@gmail.com"
+      - key: SEED_ADMIN_PASSWORD
+        value: "Westernpumps@26"
+      - key: SEED_ADMIN_FULL_NAME
+        value: "Marcos Admin"
       - key: ENFORCE_HTTPS
         value: "true"
