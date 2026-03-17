@@ -1,0 +1,34 @@
+# WesternPumps private reverse proxy (Caddy)
+# Recommended with Cloudflare Tunnel or VPN.
+
+ops.westernpumps.company:8443 {
+	# Use your issued certificate if not using automatic TLS in your environment.
+	# tls /etc/caddy/westernpumps.crt /etc/caddy/westernpumps.key
+
+	encode gzip zstd
+
+	@api path /api/*
+	handle @api {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	@legacy path /auth/* /users/* /jobs/* /customers/* /health /docs /openapi.json
+	handle @legacy {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	@ws path /ws/*
+	handle @ws {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:5173
+	}
+
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+}

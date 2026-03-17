@@ -1,0 +1,30 @@
+groups:
+  - name: westernpumps-platform
+    rules:
+      - alert: WesternPumpsHigh5xxRate
+        expr: westernpumps_http_5xx_total > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "WesternPumps API has elevated 5xx errors"
+          description: "5xx total exceeded threshold for at least 10 minutes."
+
+      - alert: WesternPumpsLowAvailability
+        expr: westernpumps_availability_percent < 99
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "WesternPumps API availability is below SLO"
+          description: "Availability dropped below 99% for at least 15 minutes."
+
+      - alert: WesternPumpsHighLatency
+        expr: westernpumps_latency_p95_ms > 1200
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "WesternPumps API latency p95 is high"
+          description: "P95 latency exceeded 1200ms for 10 minutes."
+

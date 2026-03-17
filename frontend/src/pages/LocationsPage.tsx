@@ -1,16 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Button, Card, Form, Input, Table, Tag, Typography } from "antd";
+import { Button, Card, Form, Input, Space, Table, Tag, Typography } from "antd";
 import { createLocation, listLocations, updateLocation } from "../api/locations";
 import type { Location } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
+import { formatDateTime } from "../utils/datetime";
 
 export default function LocationsPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [editing, setEditing] = useState<Location | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [showForm, setShowForm] = useState(false);
 
   async function refresh() {
     setLoading(true);
@@ -28,19 +31,39 @@ export default function LocationsPage() {
     refresh();
   }, []);
 
-  async function handleCreate() {
+  function resetForm() {
+    setEditing(null);
+    setName("");
+    setDescription("");
+    setError(null);
+    setShowForm(false);
+  }
+
+  function startEdit(location: Location) {
+    setShowForm(true);
+    setEditing(location);
+    setName(location.name);
+    setDescription(location.description ?? "");
+    setError(null);
+  }
+
+  async function handleSave() {
     setError(null);
     if (!name.trim()) {
       setError("Location name is required");
       return;
     }
     try {
-      await createLocation({ name: name.trim(), description: description.trim() || null });
-      setName("");
-      setDescription("");
+      const payload = { name: name.trim(), description: description.trim() || null };
+      if (editing) {
+        await updateLocation(editing.id, payload);
+      } else {
+        await createLocation(payload);
+      }
+      resetForm();
       await refresh();
     } catch (err: any) {
-      setError(getApiErrorMessage(err, "Failed to create location"));
+      setError(getApiErrorMessage(err, "Failed to save location"));
     }
   }
 
@@ -64,10 +87,25 @@ export default function LocationsPage() {
         render: (value: boolean) => (value ? <Tag color="green">Active</Tag> : <Tag color="red">Inactive</Tag>)
       },
       {
+        title: "Created",
+        dataIndex: "created_at",
+        key: "created_at",
+        render: (value: string) => formatDateTime(value)
+      },
+      {
+        title: "Updated",
+        dataIndex: "updated_at",
+        key: "updated_at",
+        render: (value: string) => formatDateTime(value)
+      },
+      {
         title: "Actions",
         key: "actions",
         render: (_: unknown, location: Location) => (
-          <Button onClick={() => toggleActive(location)}>{location.is_active ? "Deactivate" : "Activate"}</Button>
+          <Space>
+            <Button onClick={() => startEdit(location)}>Edit</Button>
+            <Button onClick={() => toggleActive(location)}>{location.is_active ? "Deactivate" : "Activate"}</Button>
+          </Space>
         )
       }
     ],
@@ -75,25 +113,43 @@ export default function LocationsPage() {
   );
 
   return (
-    <div className="container">
+    <div className="container page-shell">
       <Typography.Title level={2} style={{ marginTop: 0 }}>
         Locations
       </Typography.Title>
+      <Space>
+        <Button
+          onClick={() => {
+            if (showForm && !editing) {
+              resetForm();
+              return;
+            }
+            setShowForm((prev) => !prev);
+          }}
+        >
+          {showForm ? (editing ? "Editing Location" : "Hide Add Location") : "Add New Location"}
+        </Button>
+      </Space>
       <div className="grid">
-        <Card title="Add location">
-          <Form layout="vertical" onFinish={handleCreate}>
+        {showForm ? (
+        <Card title={editing ? "Edit location" : "Add location"}>
+          <Form layout="vertical" onFinish={handleSave}>
             <Form.Item label="Name" required>
               <Input value={name} onChange={(e) => setName(e.target.value)} />
             </Form.Item>
             <Form.Item label="Description">
               <Input value={description} onChange={(e) => setDescription(e.target.value)} />
             </Form.Item>
-            <Button type="primary" htmlType="submit">
-              Create
-            </Button>
+            <Space>
+              <Button type="primary" htmlType="submit">
+                {editing ? "Save changes" : "Create"}
+              </Button>
+              <Button onClick={resetForm}>Cancel</Button>
+            </Space>
           </Form>
           {error ? <Typography.Text type="danger">{error}</Typography.Text> : null}
         </Card>
+        ) : null}
 
         <Card
           title="Location list"
@@ -102,6 +158,7 @@ export default function LocationsPage() {
               Refresh
             </Button>
           }
+          style={{ gridColumn: "1 / -1" }}
         >
           <Table
             rowKey="id"

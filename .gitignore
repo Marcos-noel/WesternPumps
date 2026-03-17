@@ -24,3 +24,28 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Databases
+*.db
+*.db-journal
+*.sqlite3
+
+# Logs
+*.log
+
+# Backups & archives
+backups/
+audit_archives/
+
+# Dev data & runtime artifacts
+backend/devdata/
+backend/logs/
+
+# Temp / scratch files
+tmp_*
+
+# Binary documents (should not be in source control)
+*.docx
+*.zip
+*.xlsx
+*.enc
+

@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.audit import log_audit
 from app.deps import get_current_user, require_roles
 from app.models import Category
 from app.schemas import CategoryCreate, CategoryRead, CategoryUpdate
@@ -26,13 +27,14 @@ def list_categories(
     return [CategoryRead.model_validate(c, from_attributes=True) for c in categories]
 
 
-@router.post("", response_model=CategoryRead, dependencies=[Depends(require_roles("store_manager"))])
-def create_category(payload: CategoryCreate, db: Session = Depends(get_db)) -> CategoryRead:
+@router.post("", response_model=CategoryRead, dependencies=[Depends(require_roles("store_manager", "manager"))])
+def create_category(payload: CategoryCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> CategoryRead:
     if payload.parent_id and not db.get(Category, payload.parent_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid parent_id")
 
     category = Category(**payload.model_dump())
     db.add(category)
+    log_audit(db, current_user, "create", "category", detail=payload.model_dump())
     try:
         db.commit()
     except IntegrityError:
@@ -42,8 +44,8 @@ def create_category(payload: CategoryCreate, db: Session = Depends(get_db)) -> C
     return CategoryRead.model_validate(category, from_attributes=True)
 
 
-@router.patch("/{category_id}", response_model=CategoryRead, dependencies=[Depends(require_roles("store_manager"))])
-def update_category(category_id: int, payload: CategoryUpdate, db: Session = Depends(get_db)) -> CategoryRead:
+@router.patch("/{category_id}", response_model=CategoryRead, dependencies=[Depends(require_roles("store_manager", "manager"))])
+def update_category(category_id: int, payload: CategoryUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> CategoryRead:
     category = db.get(Category, category_id)
     if not category:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
@@ -54,6 +56,7 @@ def update_category(category_id: int, payload: CategoryUpdate, db: Session = Dep
 
     for k, v in changes.items():
         setattr(category, k, v)
+    log_audit(db, current_user, "update", "category", entity_id=category_id, detail=changes)
     try:
         db.commit()
     except IntegrityError:

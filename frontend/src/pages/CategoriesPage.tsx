@@ -1,16 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Button, Card, Form, Input, Select, Table, Tag, Typography } from "antd";
+import { Button, Card, Form, Input, Select, Space, Table, Tag, Typography } from "antd";
 import { createCategory, listCategories, updateCategory } from "../api/categories";
 import type { Category } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
+import { formatDateTime } from "../utils/datetime";
 
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [editing, setEditing] = useState<Category | null>(null);
   const [name, setName] = useState("");
   const [parentId, setParentId] = useState<number | "">("");
+  const [showForm, setShowForm] = useState(false);
 
   async function refresh() {
     setLoading(true);
@@ -28,19 +31,39 @@ export default function CategoriesPage() {
     refresh();
   }, []);
 
-  async function handleCreate() {
+  function resetForm() {
+    setEditing(null);
+    setName("");
+    setParentId("");
+    setError(null);
+    setShowForm(false);
+  }
+
+  function startEdit(category: Category) {
+    setShowForm(true);
+    setEditing(category);
+    setName(category.name);
+    setParentId(category.parent_id ?? "");
+    setError(null);
+  }
+
+  async function handleSave() {
     setError(null);
     if (!name.trim()) {
       setError("Category name is required");
       return;
     }
     try {
-      await createCategory({ name: name.trim(), parent_id: parentId === "" ? null : Number(parentId) });
-      setName("");
-      setParentId("");
+      const payload = { name: name.trim(), parent_id: parentId === "" ? null : Number(parentId) };
+      if (editing) {
+        await updateCategory(editing.id, payload);
+      } else {
+        await createCategory(payload);
+      }
+      resetForm();
       await refresh();
     } catch (err: any) {
-      setError(getApiErrorMessage(err, "Failed to create category"));
+      setError(getApiErrorMessage(err, "Failed to save category"));
     }
   }
 
@@ -71,10 +94,25 @@ export default function CategoriesPage() {
         render: (value: boolean) => (value ? <Tag color="green">Active</Tag> : <Tag color="red">Inactive</Tag>)
       },
       {
+        title: "Created",
+        dataIndex: "created_at",
+        key: "created_at",
+        render: (value: string) => formatDateTime(value)
+      },
+      {
+        title: "Updated",
+        dataIndex: "updated_at",
+        key: "updated_at",
+        render: (value: string) => formatDateTime(value)
+      },
+      {
         title: "Actions",
         key: "actions",
         render: (_: unknown, category: Category) => (
-          <Button onClick={() => toggleActive(category)}>{category.is_active ? "Deactivate" : "Activate"}</Button>
+          <Space>
+            <Button onClick={() => startEdit(category)}>Edit</Button>
+            <Button onClick={() => toggleActive(category)}>{category.is_active ? "Deactivate" : "Activate"}</Button>
+          </Space>
         )
       }
     ],
@@ -82,13 +120,27 @@ export default function CategoriesPage() {
   );
 
   return (
-    <div className="container">
+    <div className="container page-shell">
       <Typography.Title level={2} style={{ marginTop: 0 }}>
         Categories
       </Typography.Title>
+      <Space>
+        <Button
+          onClick={() => {
+            if (showForm && !editing) {
+              resetForm();
+              return;
+            }
+            setShowForm((prev) => !prev);
+          }}
+        >
+          {showForm ? (editing ? "Editing Category" : "Hide Add Category") : "Add New Category"}
+        </Button>
+      </Space>
       <div className="grid">
-        <Card title="Add category">
-          <Form layout="vertical" onFinish={handleCreate}>
+        {showForm ? (
+        <Card title={editing ? "Edit category" : "Add category"}>
+          <Form layout="vertical" onFinish={handleSave}>
             <Form.Item label="Name" required>
               <Input value={name} onChange={(e) => setName(e.target.value)} />
             </Form.Item>
@@ -100,7 +152,7 @@ export default function CategoriesPage() {
                 allowClear
               >
                 {categories
-                  .filter((c) => c.is_active)
+                  .filter((c) => c.is_active && c.id !== editing?.id)
                   .map((c) => (
                     <Select.Option key={c.id} value={c.id}>
                       {c.name}
@@ -108,12 +160,16 @@ export default function CategoriesPage() {
                   ))}
               </Select>
             </Form.Item>
-            <Button type="primary" htmlType="submit">
-              Create
-            </Button>
+            <Space>
+              <Button type="primary" htmlType="submit">
+                {editing ? "Save changes" : "Create"}
+              </Button>
+              <Button onClick={resetForm}>Cancel</Button>
+            </Space>
           </Form>
           {error ? <Typography.Text type="danger">{error}</Typography.Text> : null}
         </Card>
+        ) : null}
 
         <Card
           title="Category list"
@@ -122,6 +178,7 @@ export default function CategoriesPage() {
               Refresh
             </Button>
           }
+          style={{ gridColumn: "1 / -1" }}
         >
           <Table
             rowKey="id"

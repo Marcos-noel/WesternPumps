@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.audit import log_audit
 from app.deps import get_current_user, require_roles
 from app.models import Location
 from app.schemas import LocationCreate, LocationRead, LocationUpdate
@@ -26,10 +27,11 @@ def list_locations(
     return [LocationRead.model_validate(l, from_attributes=True) for l in locations]
 
 
-@router.post("", response_model=LocationRead, dependencies=[Depends(require_roles("store_manager"))])
-def create_location(payload: LocationCreate, db: Session = Depends(get_db)) -> LocationRead:
+@router.post("", response_model=LocationRead, dependencies=[Depends(require_roles("store_manager", "manager"))])
+def create_location(payload: LocationCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> LocationRead:
     location = Location(**payload.model_dump())
     db.add(location)
+    log_audit(db, current_user, "create", "location", detail=payload.model_dump())
     try:
         db.commit()
     except IntegrityError:
@@ -39,14 +41,15 @@ def create_location(payload: LocationCreate, db: Session = Depends(get_db)) -> L
     return LocationRead.model_validate(location, from_attributes=True)
 
 
-@router.patch("/{location_id}", response_model=LocationRead, dependencies=[Depends(require_roles("store_manager"))])
-def update_location(location_id: int, payload: LocationUpdate, db: Session = Depends(get_db)) -> LocationRead:
+@router.patch("/{location_id}", response_model=LocationRead, dependencies=[Depends(require_roles("store_manager", "manager"))])
+def update_location(location_id: int, payload: LocationUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> LocationRead:
     location = db.get(Location, location_id)
     if not location:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
 
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(location, k, v)
+    log_audit(db, current_user, "update", "location", entity_id=location_id, detail=payload.model_dump(exclude_unset=True))
     try:
         db.commit()
     except IntegrityError:

@@ -4,7 +4,7 @@ import { login as apiLogin } from "../api/auth";
 import { readMe } from "../api/users";
 import type { User } from "../api/types";
 
-const disableAuth = import.meta.env.VITE_DISABLE_AUTH !== "false";
+const disableAuth = import.meta.env.VITE_DISABLE_AUTH === "true";
 
 type AuthContextValue = {
   isAuthenticated: boolean;

@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Card, Checkbox, Form, Input, Space, Table, Tag, Typography } from "antd";
+import { Button, Card, Checkbox, Form, Input, Space, Spin, Table, Tag, Typography } from "antd";
 import { createSupplier, deactivateSupplier, listSuppliers, updateSupplier } from "../api/suppliers";
 import type { Supplier } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
+import { formatDateTime } from "../utils/datetime";
 
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -40,6 +41,7 @@ export default function SuppliersPage() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
 
   function resetForm() {
     setEditing(null);
@@ -49,9 +51,11 @@ export default function SuppliersPage() {
     setEmail("");
     setNotes("");
     setFormError(null);
+    setShowForm(false);
   }
 
   function startEdit(supplier: Supplier) {
+    setShowForm(true);
     setEditing(supplier);
     setName(supplier.name);
     setContactName(supplier.contact_name ?? "");
@@ -123,6 +127,18 @@ export default function SuppliersPage() {
         render: (value: boolean) => (value ? <Tag color="green">Active</Tag> : <Tag color="red">Inactive</Tag>)
       },
       {
+        title: "Created",
+        dataIndex: "created_at",
+        key: "created_at",
+        render: (value: string) => formatDateTime(value)
+      },
+      {
+        title: "Updated",
+        dataIndex: "updated_at",
+        key: "updated_at",
+        render: (value: string) => formatDateTime(value)
+      },
+      {
         title: "Actions",
         key: "actions",
         render: (_: unknown, supplier: Supplier) => (
@@ -141,20 +157,32 @@ export default function SuppliersPage() {
   );
 
   return (
-    <div className="container">
+    <div className="container page-shell">
       <Typography.Title level={2} style={{ marginTop: 0 }}>
         Suppliers
       </Typography.Title>
       <Space style={{ marginBottom: 12 }} size="middle">
         <Typography.Text type="secondary">
-          {loading ? "Loading..." : `${activeCount} active supplier${activeCount === 1 ? "" : "s"}`}
+          {loading ? <><Spin size="small" /> Loading suppliers</> : `${activeCount} active supplier${activeCount === 1 ? "" : "s"}`}
         </Typography.Text>
+        <Button
+          onClick={() => {
+            if (showForm && !editing) {
+              resetForm();
+              return;
+            }
+            setShowForm((prev) => !prev);
+          }}
+        >
+          {showForm ? (editing ? "Editing Supplier" : "Hide Add Supplier") : "Add New Supplier"}
+        </Button>
         <Button onClick={refresh} disabled={loading}>
           Refresh
         </Button>
       </Space>
 
       <div className="grid">
+        {showForm ? (
         <Card title={editing ? "Edit supplier" : "Add supplier"}>
           <Form layout="vertical" onFinish={handleSave}>
             <Form.Item label="Name" required>
@@ -179,14 +207,13 @@ export default function SuppliersPage() {
               <Button type="primary" htmlType="submit" disabled={saving}>
                 {editing ? "Save changes" : "Create supplier"}
               </Button>
-              {editing ? (
-                <Button onClick={resetForm} disabled={saving}>
-                  Cancel
-                </Button>
-              ) : null}
+              <Button onClick={resetForm} disabled={saving}>
+                Cancel
+              </Button>
             </Space>
           </Form>
         </Card>
+        ) : null}
 
         <Card
           title="Supplier list"
@@ -195,6 +222,7 @@ export default function SuppliersPage() {
               Include inactive
             </Checkbox>
           }
+          style={{ gridColumn: "1 / -1" }}
         >
           <Form
             layout="inline"

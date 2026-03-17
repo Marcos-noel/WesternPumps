@@ -6,7 +6,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_roles
+from app.audit import log_audit
 from app.models import Supplier
 from app.schemas import SupplierCreate, SupplierRead, SupplierUpdate
 
@@ -33,10 +34,11 @@ def list_suppliers(
     return [SupplierRead.model_validate(s, from_attributes=True) for s in suppliers]
 
 
-@router.post("", response_model=SupplierRead)
-def create_supplier(payload: SupplierCreate, db: Session = Depends(get_db)) -> SupplierRead:
+@router.post("", response_model=SupplierRead, dependencies=[Depends(require_roles("store_manager", "manager"))])
+def create_supplier(payload: SupplierCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> SupplierRead:
     supplier = Supplier(**payload.model_dump())
     db.add(supplier)
+    log_audit(db, current_user, "create", "supplier", detail=payload.model_dump())
     try:
         db.commit()
     except IntegrityError:
@@ -46,14 +48,15 @@ def create_supplier(payload: SupplierCreate, db: Session = Depends(get_db)) -> S
     return SupplierRead.model_validate(supplier, from_attributes=True)
 
 
-@router.patch("/{supplier_id}", response_model=SupplierRead)
-def update_supplier(supplier_id: int, payload: SupplierUpdate, db: Session = Depends(get_db)) -> SupplierRead:
+@router.patch("/{supplier_id}", response_model=SupplierRead, dependencies=[Depends(require_roles("store_manager", "manager"))])
+def update_supplier(supplier_id: int, payload: SupplierUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> SupplierRead:
     supplier = db.get(Supplier, supplier_id)
     if not supplier:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplier not found")
 
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(supplier, k, v)
+    log_audit(db, current_user, "update", "supplier", entity_id=supplier_id, detail=payload.model_dump(exclude_unset=True))
     try:
         db.commit()
     except IntegrityError:
@@ -63,13 +66,14 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, db: Session = Dep
     return SupplierRead.model_validate(supplier, from_attributes=True)
 
 
-@router.delete("/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
-def deactivate_supplier(supplier_id: int, db: Session = Depends(get_db)) -> None:
+@router.delete("/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_roles("store_manager", "manager"))])
+def deactivate_supplier(supplier_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> None:
     supplier = db.get(Supplier, supplier_id)
     if not supplier:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplier not found")
 
     supplier.is_active = False
+    log_audit(db, current_user, "deactivate", "supplier", entity_id=supplier_id)
     db.commit()
     return None
 

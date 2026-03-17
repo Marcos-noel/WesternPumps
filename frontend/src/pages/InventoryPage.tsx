@@ -1,20 +1,44 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Card, Checkbox, Form, Input, Modal, Select, Space, Table, Tag, Typography } from "antd";
+import { App as AntdApp, Button, Card, Checkbox, Drawer, Dropdown, Form, Grid, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, Upload } from "antd";
+import type { MenuProps } from "antd";
+import { FilterOutlined, MoreOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
+import { FloatingBubble, PullToRefresh } from "antd-mobile";
 import {
   bulkCreateItemInstances,
   createItem,
+  deactivateItem,
+  deleteItemAttachment,
+  downloadItemAttachment,
+  downloadItemInstanceLabelPdf,
+  downloadItemLabelPdf,
+  getItemInstanceQrSvg,
   getItemQrSvg,
+  importInventoryXlsx,
+  listItemAttachments,
+  listItemLocations,
   listItemInstances,
   listItems,
   listLowStock,
+  hardDeleteItem,
+  type ProductAttachment,
+  reactivateItem,
+  uploadItemAttachment,
+  updateItemLocations,
   updateItem
 } from "../api/items";
 import { listCategories } from "../api/categories";
 import { listLocations } from "../api/locations";
 import { listSuppliers } from "../api/suppliers";
 import { createStockTransaction, listStockTransactions } from "../api/stock";
-import type { Category, Item, ItemInstance, Location, StockTransaction, StockTransactionType, Supplier } from "../api/types";
+import { createRequest } from "../api/requests";
+import { listUsers } from "../api/users";
+import type { Category, Item, ItemInstance, Location, StockTransaction, StockTransactionType, Supplier, User } from "../api/types";
+import type { LocationStock } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
+import { formatKes } from "../utils/currency";
+import { formatDateTime } from "../utils/datetime";
+import { useAuth } from "../state/AuthContext";
+import SmartEmptyState from "../components/SmartEmptyState";
 
 type SortField = "name" | "sku" | "quantity_on_hand" | "min_quantity" | "created_at" | "updated_at";
 type SortDirection = "asc" | "desc";
@@ -52,6 +76,49 @@ function buildCsv(headers: string[], rows: Array<Array<string | number | null | 
   return lines.join("\n");
 }
 
+function parseCsv(content: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+  for (let i = 0; i < content.length; i += 1) {
+    const char = content[i];
+    const next = content[i + 1];
+    if (char === "\"") {
+      if (inQuotes && next === "\"") {
+        cell += "\"";
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (!inQuotes && char === ",") {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+    if (!inQuotes && (char === "\n" || char === "\r")) {
+      if (char === "\r" && next === "\n") i += 1;
+      row.push(cell);
+      if (row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+    cell += char;
+  }
+  if (cell.length > 0 || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function normalizeHeader(value: string): string {
+  return value.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+}
+
 function downloadTextFile(filename: string, content: string, type = "text/plain") {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -64,14 +131,37 @@ function downloadTextFile(filename: string, content: string, type = "text/plain"
   URL.revokeObjectURL(url);
 }
 
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function InventoryPage() {
+  const { message } = AntdApp.useApp();
+  const { isAdmin, user } = useAuth();
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
+  const role = user?.role ?? "technician";
+  const canApproveDeletion = isAdmin || role === "manager" || role === "approver";
   const [items, setItems] = useState<Item[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
+  const [inventoryPulse, setInventoryPulse] = useState(false);
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const suppliersById = useMemo(() => new Map(suppliers.map((s) => [s.id, s])), [suppliers]);
+  const [users, setUsers] = useState<User[]>([]);
+  const usersById = useMemo(
+    () => new Map(users.map((u) => [u.id, u.full_name || u.email])),
+    [users]
+  );
   const [categories, setCategories] = useState<Category[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
 
@@ -82,18 +172,48 @@ export default function InventoryPage() {
   const [searchInput, setSearchInput] = useState("");
   const [q, setQ] = useState("");
   const [lowOnly, setLowOnly] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [reorderItems, setReorderItems] = useState<Item[]>([]);
+  const [reorderLoading, setReorderLoading] = useState(false);
+  const [reorderError, setReorderError] = useState<string | null>(null);
+  const [reorderQuantities, setReorderQuantities] = useState<Record<number, number>>({});
+  const [reorderSubmitting, setReorderSubmitting] = useState(false);
+  const [reorderPage, setReorderPage] = useState(1);
+  const [reorderPageSize, setReorderPageSize] = useState(10);
+  const [importing, setImporting] = useState(false);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [importSummary, setImportSummary] = useState<{ created: number; failed: number } | null>(null);
+  const [importSkipped, setImportSkipped] = useState<number | null>(null);
+
+  function triggerInventoryPulse() {
+    setInventoryPulse(true);
+    window.setTimeout(() => setInventoryPulse(false), 1200);
+  }
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
 
   const refreshSuppliers = useCallback(async () => {
+    const wasEditing = Boolean(editing);
     try {
       setSuppliers(await listSuppliers({ include_inactive: true }));
     } catch {
       // Non-critical: inventory can still function without supplier names loaded.
     }
   }, []);
+
+  const refreshUsers = useCallback(async () => {
+    if (!isAdmin) {
+      setUsers([]);
+      return;
+    }
+    try {
+      setUsers(await listUsers());
+    } catch {
+      // Optional
+    }
+  }, [isAdmin]);
 
   const refreshCategories = useCallback(async () => {
     try {
@@ -111,6 +231,26 @@ export default function InventoryPage() {
     }
   }, []);
 
+  const loadReorder = useCallback(async () => {
+    setReorderLoading(true);
+    setReorderError(null);
+    try {
+      const low = await listLowStock({ limit: 200 });
+      setReorderItems(low);
+      setReorderPage(1);
+      const defaults: Record<number, number> = {};
+      low.forEach((item) => {
+        const shortage = Math.max(0, item.min_quantity - item.quantity_on_hand);
+        defaults[item.id] = shortage;
+      });
+      setReorderQuantities(defaults);
+    } catch (err: any) {
+      setReorderError(getApiErrorMessage(err, "Failed to load reorder suggestions"));
+    } finally {
+      setReorderLoading(false);
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setListError(null);
@@ -125,17 +265,19 @@ export default function InventoryPage() {
           page_size: pageSize,
           q: q || undefined,
           sort,
-          direction
+          direction,
+          include_inactive: true
         });
         setItems(data.items);
         setTotal(data.total);
       }
+      await loadReorder();
     } catch (err: any) {
       setListError(getApiErrorMessage(err, "Failed to load inventory"));
     } finally {
       setLoading(false);
     }
-  }, [direction, lowOnly, page, pageSize, q, sort]);
+  }, [direction, loadReorder, lowOnly, page, pageSize, q, sort]);
 
   useEffect(() => {
     refresh();
@@ -144,6 +286,10 @@ export default function InventoryPage() {
   useEffect(() => {
     refreshSuppliers();
   }, [refreshSuppliers]);
+
+  useEffect(() => {
+    refreshUsers();
+  }, [refreshUsers]);
 
   useEffect(() => {
     refreshCategories();
@@ -168,6 +314,7 @@ export default function InventoryPage() {
     setSku("");
     setName("");
     setDescription("");
+    setImageUrl("");
     setUnitPrice("");
     setQuantityOnHand("0");
     setMinQuantity("0");
@@ -177,12 +324,23 @@ export default function InventoryPage() {
     setLocationId("");
     setSupplierId("");
     setFormError(null);
+    setShowItemForm(false);
   }
 
   const [editing, setEditing] = useState<Item | null>(null);
+  const [showItemForm, setShowItemForm] = useState(false);
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [quickName, setQuickName] = useState("");
+  const [quickTrackingType, setQuickTrackingType] = useState<"BATCH" | "INDIVIDUAL">("BATCH");
+  const [quickQtyOnHand, setQuickQtyOnHand] = useState(0);
+  const [quickMinQty, setQuickMinQty] = useState(0);
+  const [quickUnitPrice, setQuickUnitPrice] = useState<number | null>(null);
+  const [quickSaving, setQuickSaving] = useState(false);
+  const [quickError, setQuickError] = useState<string | null>(null);
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
   const [quantityOnHand, setQuantityOnHand] = useState("0");
   const [minQuantity, setMinQuantity] = useState("0");
@@ -195,10 +353,12 @@ export default function InventoryPage() {
   const [formError, setFormError] = useState<string | null>(null);
 
   function startEdit(item: Item) {
+    setShowItemForm(true);
     setEditing(item);
     setSku(item.sku);
     setName(item.name);
     setDescription(item.description ?? "");
+    setImageUrl(item.image_url ?? "");
     setUnitPrice(item.unit_price == null ? "" : String(item.unit_price));
     setQuantityOnHand(String(item.quantity_on_hand));
     setMinQuantity(String(item.min_quantity));
@@ -213,14 +373,14 @@ export default function InventoryPage() {
   async function handleSave() {
     setFormError(null);
 
-    const skuValue = sku.trim();
     const nameValue = name.trim();
-    if (!skuValue) {
-      setFormError("SKU is required");
-      return;
-    }
     if (!nameValue) {
       setFormError("Name is required");
+      return;
+    }
+    const imageUrlValue = imageUrl.trim();
+    if (!imageUrlValue) {
+      setFormError("Item image URL is required");
       return;
     }
 
@@ -241,28 +401,35 @@ export default function InventoryPage() {
     }
 
     setSaving(true);
+    const wasEditing = Boolean(editing);
     try {
       const payload = {
-        sku: skuValue,
         name: nameValue,
-        description: description.trim() ? description.trim() : null,
+        description: description.trim() || null,
+        image_url: imageUrlValue,
         unit_price: price,
         quantity_on_hand: qoh,
         min_quantity: minQty,
         tracking_type: trackingType,
-        unit_of_measure: unitOfMeasure.trim() ? unitOfMeasure.trim() : null,
+        unit_of_measure: unitOfMeasure.trim() || null,
         category_id: categoryId === "" ? null : Number(categoryId),
         location_id: locationId === "" ? null : Number(locationId),
         supplier_id: supplierId === "" ? null : Number(supplierId)
       };
+      let createdItem: Item | null = null;
       if (editing) {
         await updateItem(editing.id, payload);
       } else {
-        await createItem(payload);
+        createdItem = await createItem(payload);
       }
       resetForm();
       setPage(1);
       await refresh();
+      message.success(wasEditing ? "Item updated" : "Item created");
+      triggerInventoryPulse();
+      if (createdItem) {
+        await openQrModal(createdItem);
+      }
     } catch (err: any) {
       setFormError(getApiErrorMessage(err, "Failed to save item"));
     } finally {
@@ -270,22 +437,90 @@ export default function InventoryPage() {
     }
   }
 
+  async function handleQuickCreateItem() {
+    const nameValue = quickName.trim();
+    if (!nameValue) {
+      setQuickError("Name is required");
+      return;
+    }
+    setQuickSaving(true);
+    setQuickError(null);
+    try {
+      await createItem({
+        name: nameValue,
+        quantity_on_hand: Math.max(0, quickQtyOnHand),
+        min_quantity: Math.max(0, quickMinQty),
+        unit_price: quickUnitPrice == null ? null : Math.max(0, quickUnitPrice),
+        tracking_type: quickTrackingType,
+        description: null,
+        image_url: null,
+        unit_of_measure: null,
+        category_id: null,
+        location_id: null,
+        supplier_id: null
+      });
+      message.success("Quick item created");
+      setQuickCreateOpen(false);
+      setQuickName("");
+      setQuickTrackingType("BATCH");
+      setQuickQtyOnHand(0);
+      setQuickMinQty(0);
+      setQuickUnitPrice(null);
+      await refresh();
+      triggerInventoryPulse();
+    } catch (err: any) {
+      setQuickError(getApiErrorMessage(err, "Failed to create quick item"));
+    } finally {
+      setQuickSaving(false);
+    }
+  }
+
   function formatMoney(v?: number | null): string {
-    if (v == null || Number.isNaN(v)) return "";
-    return `$${v.toFixed(2)}`;
+    return formatKes(v);
   }
 
   const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+  const categoryIdByName = useMemo(
+    () => new Map(categories.map((c) => [c.name.toLowerCase(), c.id])),
+    [categories]
+  );
+  const locationIdByName = useMemo(
+    () => new Map(locations.map((l) => [l.name.toLowerCase(), l.id])),
+    [locations]
+  );
+  const supplierIdByName = useMemo(
+    () => new Map(suppliers.map((s) => [s.name.toLowerCase(), s.id])),
+    [suppliers]
+  );
 
   const itemColumns = useMemo(() => {
     const label = (text: string, field: SortField) => (
       <Button type="link" onClick={() => toggleSort(field)} disabled={lowOnly} style={{ padding: 0 }}>
-        {text} {sort === field ? (direction === "asc" ? "↑" : "↓") : ""}
+        {text} {sort === field ? (direction === "asc" ? "^" : "v") : ""}
       </Button>
     );
     return [
       { title: label("SKU", "sku"), dataIndex: "sku", key: "sku" },
+      {
+        title: "Image",
+        key: "image_url",
+        render: (_: unknown, item: Item) =>
+          item.image_url ? (
+            <img
+              src={item.image_url}
+              alt={item.name}
+              style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(255,255,255,0.18)" }}
+            />
+          ) : (
+            <Tag>Missing</Tag>
+          )
+      },
       { title: label("Name", "name"), dataIndex: "name", key: "name" },
+      {
+        title: "Active",
+        key: "is_active",
+        render: (_: unknown, item: Item) => (item.is_active ? <Tag color="green">Active</Tag> : <Tag color="default">Inactive</Tag>)
+      },
       {
         title: "Category",
         key: "category",
@@ -313,33 +548,206 @@ export default function InventoryPage() {
       {
         title: "Actions",
         key: "actions",
-        render: (_: unknown, item: Item) => (
-          <Space wrap>
-            <Button onClick={() => startEdit(item)} disabled={saving}>
+        width: 120,
+        render: (_: unknown, item: Item) => {
+          const menuItems: MenuProps["items"] = [
+            {
+              key: "edit",
+              label: "Edit",
+              onClick: () => startEdit(item),
+            },
+            {
+              key: "stock",
+              label: "Stock",
+              onClick: () => openStockModal(item),
+            },
+            {
+              key: "instances",
+              label: "Instances",
+              disabled: item.tracking_type !== "INDIVIDUAL",
+              onClick: () => openInstancesModal(item),
+            },
+            {
+              key: "locations",
+              label: "Locations",
+              onClick: () => openLocationModal(item),
+            },
+            {
+              key: "attachments",
+              label: "Attachments",
+              onClick: () => openAttachmentsModal(item),
+            },
+            {
+              key: "qr",
+              label: "QR",
+              onClick: () => openQrModal(item),
+            },
+            { type: "divider" },
+            item.is_active
+              ? {
+                  key: "deactivate",
+                  label: "Deactivate",
+                  disabled: !canApproveDeletion || saving,
+                  danger: true,
+                  onClick: () =>
+                    Modal.confirm({
+                      title: "Deactivate item?",
+                      content: "This hides the item from active inventory operations but preserves history.",
+                      okText: "Deactivate",
+                      okButtonProps: { danger: true },
+                      onOk: async () => {
+                        try {
+                          await deactivateItem(item.id);
+                          message.success("Item deactivated");
+                          await refresh();
+                        } catch (err: any) {
+                          setListError(getApiErrorMessage(err, "Failed to deactivate item"));
+                        }
+                      }
+                    }),
+                }
+              : {
+                  key: "reactivate",
+                  label: "Reactivate",
+                  disabled: !canApproveDeletion || saving,
+                  onClick: async () => {
+                    try {
+                      await reactivateItem(item.id);
+                      message.success("Item reactivated");
+                      await refresh();
+                    } catch (err: any) {
+                      setListError(getApiErrorMessage(err, "Failed to reactivate item"));
+                    }
+                  },
+                },
+            {
+              key: "delete",
+              label: "Delete",
+              danger: true,
+              disabled: !canApproveDeletion || saving,
+              onClick: () =>
+                Modal.confirm({
+                  title: "Permanently delete item?",
+                  content: "This is irreversible. If the item has stock history, deletion will be blocked.",
+                  okText: "Delete",
+                  okButtonProps: { danger: true },
+                  onOk: async () => {
+                    try {
+                      await hardDeleteItem(item.id);
+                      message.success("Item deleted");
+                      await refresh();
+                    } catch (err: any) {
+                      setListError(getApiErrorMessage(err, "Failed to delete item"));
+                    }
+                  }
+                }),
+            },
+          ];
+          return (
+            <Dropdown menu={{ items: menuItems }} trigger={["click"]}>
+              <Button icon={<MoreOutlined />} className="row-action-btn">Manage</Button>
+            </Dropdown>
+          );
+        }
+      }
+    ];
+  }, [canApproveDeletion, categoryNameById, direction, lowOnly, refresh, saving, sort, suppliersById]);
+
+  const mobileItemCards = useMemo(
+    () =>
+      items.map((item) => (
+        <Card key={item.id} className="mobile-item-card">
+          <div className="mobile-item-card-head">
+            <div>
+              <Typography.Title level={5} style={{ margin: 0 }}>
+                {item.name}
+              </Typography.Title>
+              <Typography.Text type="secondary">{item.sku}</Typography.Text>
+            </div>
+            <Space>
+              {isLowStock(item) ? <Tag color="red">Low</Tag> : <Tag color="green">OK</Tag>}
+              {!item.is_active ? <Tag>Inactive</Tag> : null}
+            </Space>
+          </div>
+          <div className="mobile-item-card-grid">
+            <div>
+              <div className="mobile-metric-label">On Hand</div>
+              <div className="mobile-metric-value">{item.quantity_on_hand}</div>
+            </div>
+            <div>
+              <div className="mobile-metric-label">Min</div>
+              <div className="mobile-metric-value">{item.min_quantity}</div>
+            </div>
+            <div>
+              <div className="mobile-metric-label">Tracking</div>
+              <div className="mobile-metric-value">{item.tracking_type ?? "BATCH"}</div>
+            </div>
+            <div>
+              <div className="mobile-metric-label">Unit Price</div>
+              <div className="mobile-metric-value">{formatMoney(item.unit_price)}</div>
+            </div>
+          </div>
+          <Space wrap style={{ marginTop: 10 }}>
+            <Button size="middle" onClick={() => startEdit(item)}>
               Edit
             </Button>
-            <Button onClick={() => openStockModal(item)} disabled={saving}>
+            <Button size="middle" onClick={() => openStockModal(item)}>
               Stock
             </Button>
-            {item.tracking_type === "INDIVIDUAL" ? (
-              <Button onClick={() => openInstancesModal(item)} disabled={saving}>
-                Instances
-              </Button>
-            ) : null}
-            <Button onClick={() => openQrModal(item)} disabled={saving}>
+            <Button size="middle" onClick={() => openAttachmentsModal(item)}>
+              Files
+            </Button>
+            <Button size="middle" onClick={() => openQrModal(item)}>
               QR
             </Button>
           </Space>
+        </Card>
+      )),
+    [items]
+  );
+
+  const reorderColumns = useMemo(
+    () => [
+      { title: "SKU", dataIndex: "sku", key: "sku" },
+      { title: "Item", dataIndex: "name", key: "name" },
+      { title: "On hand", dataIndex: "quantity_on_hand", key: "quantity_on_hand" },
+      { title: "Min", dataIndex: "min_quantity", key: "min_quantity" },
+      {
+        title: "Reorder qty",
+        key: "reorder_qty",
+        render: (_: unknown, item: Item) => (
+          <InputNumber
+            min={0}
+            value={reorderQuantities[item.id] ?? 0}
+            onChange={(value) =>
+              setReorderQuantities((prev) => ({
+                ...prev,
+                [item.id]: Number(value) || 0
+              }))
+            }
+          />
         )
       }
-    ];
-  }, [categoryNameById, direction, lowOnly, saving, sort, suppliersById]);
+    ],
+    [reorderQuantities]
+  );
+  const pagedReorderItems = useMemo(() => {
+    const start = (reorderPage - 1) * reorderPageSize;
+    return reorderItems.slice(start, start + reorderPageSize);
+  }, [reorderItems, reorderPage, reorderPageSize]);
 
   const transactionColumns = useMemo(
     () => [
       { title: "Date", dataIndex: "created_at", key: "created_at", render: (value: string) => formatDateTime(value) },
       { title: "Type", dataIndex: "transaction_type", key: "transaction_type" },
       { title: "Delta", dataIndex: "quantity_delta", key: "quantity_delta", render: (value: number) => formatDelta(value) },
+      {
+        title: "By",
+        dataIndex: "created_by_user_id",
+        key: "created_by_user_id",
+        render: (value: number | null) =>
+          value ? usersById.get(value) ?? "Unknown user" : ""
+      },
       {
         title: "Supplier",
         dataIndex: "supplier_id",
@@ -348,17 +756,13 @@ export default function InventoryPage() {
       },
       { title: "Notes", dataIndex: "notes", key: "notes", render: (value: string | null) => value ?? "" }
     ],
-    [suppliersById]
+    [suppliersById, usersById]
   );
 
-  const instanceColumns = useMemo(
-    () => [
-      { title: "Serial", dataIndex: "serial_number", key: "serial_number" },
-      { title: "Status", dataIndex: "status", key: "status" },
-      { title: "Created", dataIndex: "created_at", key: "created_at", render: (value: string) => formatDateTime(value) }
-    ],
-    []
-  );
+  const [instancesItem, setInstancesItem] = useState<Item | null>(null);
+  const [instances, setInstances] = useState<ItemInstance[]>([]);
+  const [instancesLoading, setInstancesLoading] = useState(false);
+  const [instancesError, setInstancesError] = useState<string | null>(null);
 
   const buildItemsCsv = useCallback(
     (rows: Item[]) =>
@@ -393,12 +797,24 @@ export default function InventoryPage() {
   const [qrSvg, setQrSvg] = useState<string | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
   const [qrError, setQrError] = useState<string | null>(null);
+  const [labelWidthMm, setLabelWidthMm] = useState(50);
+  const [labelHeightMm, setLabelHeightMm] = useState(30);
+  const [instanceQr, setInstanceQr] = useState<{ item: Item; instance: ItemInstance } | null>(null);
+  const [instanceQrSvg, setInstanceQrSvg] = useState<string | null>(null);
+  const [instanceQrLoading, setInstanceQrLoading] = useState(false);
+  const [instanceQrError, setInstanceQrError] = useState<string | null>(null);
+  const [instanceLabelWidthMm, setInstanceLabelWidthMm] = useState(50);
+  const [instanceLabelHeightMm, setInstanceLabelHeightMm] = useState(30);
 
-  const [instancesItem, setInstancesItem] = useState<Item | null>(null);
-  const [instances, setInstances] = useState<ItemInstance[]>([]);
-  const [instancesLoading, setInstancesLoading] = useState(false);
-  const [instancesError, setInstancesError] = useState<string | null>(null);
   const [bulkQty, setBulkQty] = useState("1");
+  const [locationItem, setLocationItem] = useState<Item | null>(null);
+  const [locationStocks, setLocationStocks] = useState<LocationStock[]>([]);
+  const [locationSaving, setLocationSaving] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [attachmentItem, setAttachmentItem] = useState<Item | null>(null);
+  const [attachments, setAttachments] = useState<ProductAttachment[]>([]);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
   const loadTransactions = useCallback(async (partId: number) => {
     setTxLoading(true);
@@ -445,17 +861,104 @@ export default function InventoryPage() {
     return `${delta > 0 ? "+" : ""}${delta}`;
   }
 
-  function formatDateTime(value: string): string {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString();
-  }
-
   const qrDataUrl = useMemo(
     () => (qrSvg ? `data:image/svg+xml;utf8,${encodeURIComponent(qrSvg)}` : ""),
     [qrSvg]
   );
   const qrText = useMemo(() => (qrItem ? `SKU:${qrItem.sku}` : ""), [qrItem]);
+  const instanceQrDataUrl = useMemo(
+    () => (instanceQrSvg ? `data:image/svg+xml;utf8,${encodeURIComponent(instanceQrSvg)}` : ""),
+    [instanceQrSvg]
+  );
+  const instanceQrText = useMemo(
+    () => (instanceQr ? `SERIAL:${instanceQr.instance.serial_number}` : ""),
+    [instanceQr]
+  );
+
+  function handlePrintLabel() {
+    if (!qrItem || !qrSvg) return;
+    const width = Math.max(20, labelWidthMm);
+    const height = Math.max(20, labelHeightMm);
+    const win = window.open("", "_blank", "width=800,height=600");
+    if (!win) return;
+    win.document.write(`<!doctype html>
+<html>
+<head>
+  <title>Print Label</title>
+  <style>
+    @page { size: ${width}mm ${height}mm; margin: 2mm; }
+    html, body { margin: 0; padding: 0; width: ${width}mm; height: ${height}mm; }
+    .label { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; font-family: Arial, sans-serif; }
+    .sku { margin-top: 2mm; font-size: 10pt; text-align: center; }
+    img { width: min(${width - 6}mm, ${height - 10}mm); height: auto; }
+  </style>
+</head>
+<body>
+  <div class="label">
+    <img src="${qrDataUrl}" alt="QR" />
+    <div class="sku">${qrText}</div>
+  </div>
+</body>
+</html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+    win.close();
+  }
+
+  async function handleDownloadLabelPdf() {
+    if (!qrItem) return;
+    try {
+      const blob = await downloadItemLabelPdf(qrItem.id, { width_mm: labelWidthMm, height_mm: labelHeightMm });
+      downloadBlob(`label-${qrItem.sku}.pdf`, blob);
+    } catch (err: any) {
+      setQrError(getApiErrorMessage(err, "Failed to download label PDF"));
+    }
+  }
+
+  function handlePrintInstanceLabel() {
+    if (!instanceQr || !instanceQrSvg) return;
+    const width = Math.max(20, instanceLabelWidthMm);
+    const height = Math.max(20, instanceLabelHeightMm);
+    const win = window.open("", "_blank", "width=800,height=600");
+    if (!win) return;
+    win.document.write(`<!doctype html>
+<html>
+<head>
+  <title>Print Label</title>
+  <style>
+    @page { size: ${width}mm ${height}mm; margin: 2mm; }
+    html, body { margin: 0; padding: 0; width: ${width}mm; height: ${height}mm; }
+    .label { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; font-family: Arial, sans-serif; }
+    .sku { margin-top: 2mm; font-size: 10pt; text-align: center; }
+    img { width: min(${width - 6}mm, ${height - 10}mm); height: auto; }
+  </style>
+</head>
+<body>
+  <div class="label">
+    <img src="${instanceQrDataUrl}" alt="QR" />
+    <div class="sku">${instanceQrText}</div>
+  </div>
+</body>
+</html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+    win.close();
+  }
+
+  async function handleDownloadInstanceLabelPdf() {
+    if (!instanceQr) return;
+    try {
+      const blob = await downloadItemInstanceLabelPdf(instanceQr.instance.id, {
+        width_mm: instanceLabelWidthMm,
+        height_mm: instanceLabelHeightMm
+      });
+      downloadBlob(`label-${instanceQr.instance.serial_number}.pdf`, blob);
+    } catch (err: any) {
+      setInstanceQrError(getApiErrorMessage(err, "Failed to download instance label PDF"));
+    }
+  }
 
   const openQrModal = useCallback(
     async (item: Item) => {
@@ -475,11 +978,37 @@ export default function InventoryPage() {
     []
   );
 
+  const openInstanceQrModal = useCallback(async (item: Item, instance: ItemInstance) => {
+    setInstanceQr({ item, instance });
+    setInstanceQrSvg(null);
+    setInstanceQrError(null);
+    setInstanceQrLoading(true);
+    try {
+      const svg = await getItemInstanceQrSvg(instance.id);
+      setInstanceQrSvg(svg);
+    } catch (err: any) {
+      setInstanceQrError(getApiErrorMessage(err, "Failed to load QR code"));
+    } finally {
+      setInstanceQrLoading(false);
+    }
+  }, []);
+
   const closeQrModal = useCallback(() => {
     setQrItem(null);
     setQrSvg(null);
     setQrError(null);
     setQrLoading(false);
+    setLabelWidthMm(50);
+    setLabelHeightMm(30);
+  }, []);
+
+  const closeInstanceQrModal = useCallback(() => {
+    setInstanceQr(null);
+    setInstanceQrSvg(null);
+    setInstanceQrError(null);
+    setInstanceQrLoading(false);
+    setInstanceLabelWidthMm(50);
+    setInstanceLabelHeightMm(30);
   }, []);
 
   const loadInstances = useCallback(async (itemId: number) => {
@@ -503,12 +1032,125 @@ export default function InventoryPage() {
     [loadInstances]
   );
 
+  const openLocationModal = useCallback(
+    async (item: Item) => {
+      setLocationItem(item);
+      setLocationError(null);
+      setLocationSaving(false);
+      try {
+        const stocks = await listItemLocations(item.id);
+        const map = new Map(stocks.map((s) => [s.location_id, s]));
+        const combined = locations.map((loc) => ({
+          location_id: loc.id,
+          location_name: loc.name,
+          quantity_on_hand: map.get(loc.id)?.quantity_on_hand ?? 0
+        }));
+        setLocationStocks(combined);
+      } catch (err: any) {
+        setLocationError(getApiErrorMessage(err, "Failed to load item locations"));
+        setLocationStocks([]);
+      }
+    },
+    [locations]
+  );
+
   const closeInstancesModal = useCallback(() => {
     setInstancesItem(null);
     setInstances([]);
     setInstancesError(null);
     setInstancesLoading(false);
   }, []);
+
+  const closeLocationModal = useCallback(() => {
+    setLocationItem(null);
+    setLocationStocks([]);
+    setLocationError(null);
+    setLocationSaving(false);
+  }, []);
+
+  async function openAttachmentsModal(item: Item) {
+    setAttachmentItem(item);
+    setAttachmentError(null);
+    setAttachmentUploading(false);
+    try {
+      const rows = await listItemAttachments(item.id);
+      setAttachments(rows);
+    } catch (err: any) {
+      setAttachmentError(getApiErrorMessage(err, "Failed to load attachments"));
+      setAttachments([]);
+    }
+  }
+
+  function closeAttachmentsModal() {
+    setAttachmentItem(null);
+    setAttachments([]);
+    setAttachmentError(null);
+    setAttachmentUploading(false);
+  }
+
+  async function handleUploadAttachment(file: File) {
+    if (!attachmentItem) return;
+    setAttachmentUploading(true);
+    setAttachmentError(null);
+    try {
+      await uploadItemAttachment(attachmentItem.id, file);
+      const rows = await listItemAttachments(attachmentItem.id);
+      setAttachments(rows);
+      message.success("Attachment uploaded");
+    } catch (err: any) {
+      setAttachmentError(getApiErrorMessage(err, "Failed to upload attachment"));
+    } finally {
+      setAttachmentUploading(false);
+    }
+  }
+
+  async function handleDownloadAttachment(attachment: ProductAttachment) {
+    if (!attachmentItem) return;
+    try {
+      const blob = await downloadItemAttachment(attachmentItem.id, attachment.id);
+      downloadBlob(attachment.file_name, blob);
+    } catch (err: any) {
+      setAttachmentError(getApiErrorMessage(err, "Failed to download attachment"));
+    }
+  }
+
+  async function handleDeleteAttachment(attachment: ProductAttachment) {
+    if (!attachmentItem) return;
+    try {
+      await deleteItemAttachment(attachmentItem.id, attachment.id);
+      setAttachments((prev) => prev.filter((x) => x.id !== attachment.id));
+      message.success("Attachment deleted");
+    } catch (err: any) {
+      setAttachmentError(getApiErrorMessage(err, "Failed to delete attachment"));
+    }
+  }
+
+  async function handleSaveLocations() {
+    if (!locationItem) return;
+    setLocationSaving(true);
+    setLocationError(null);
+    try {
+      await updateItemLocations(
+        locationItem.id,
+        locationStocks.map((s) => ({ location_id: s.location_id, quantity_on_hand: s.quantity_on_hand }))
+      );
+      message.success("Locations updated");
+      await refresh();
+      closeLocationModal();
+    } catch (err: any) {
+      setLocationError(getApiErrorMessage(err, "Failed to update locations"));
+    } finally {
+      setLocationSaving(false);
+    }
+  }
+
+  function updateLocationQty(locationId: number, qty: number) {
+    setLocationStocks((prev) =>
+      prev.map((row) =>
+        row.location_id === locationId ? { ...row, quantity_on_hand: Math.max(0, qty) } : row
+      )
+    );
+  }
 
   async function handleBulkCreate() {
     if (!instancesItem) return;
@@ -523,6 +1165,7 @@ export default function InventoryPage() {
       await bulkCreateItemInstances(instancesItem.id, { quantity: qty });
       await loadInstances(instancesItem.id);
       await refresh();
+      message.success("Instances created");
     } catch (err: any) {
       setInstancesError(getApiErrorMessage(err, "Failed to create instances"));
     } finally {
@@ -577,6 +1220,235 @@ export default function InventoryPage() {
       setReportError(getApiErrorMessage(err, "Failed to export low stock"));
     } finally {
       setReporting(false);
+    }
+  }
+
+  async function handleCreateReorderRequest() {
+    setReorderError(null);
+    const lines = reorderItems
+      .map((item) => ({ part_id: item.id, quantity: reorderQuantities[item.id] || 0 }))
+      .filter((line) => line.quantity > 0);
+    if (lines.length === 0) {
+      setReorderError("Add at least one reorder quantity.");
+      return;
+    }
+    setReorderSubmitting(true);
+    try {
+      await createRequest({ lines });
+      message.success("Reorder request created");
+      await refresh();
+    } catch (err: any) {
+      setReorderError(getApiErrorMessage(err, "Failed to create reorder request"));
+    } finally {
+      setReorderSubmitting(false);
+    }
+  }
+
+  function downloadImportTemplate() {
+    const headers = [
+      "sku",
+      "name",
+      "image_url",
+      "description",
+      "unit_price",
+      "quantity_on_hand",
+      "min_quantity",
+      "tracking_type",
+      "unit_of_measure",
+      "category",
+      "location",
+      "supplier"
+    ];
+    downloadTextFile("inventory-import-template.csv", buildCsv(headers, []), "text/csv");
+  }
+
+  function findHeaderIndex(headers: string[], keys: string[]): number {
+    for (const key of keys) {
+      const idx = headers.indexOf(key);
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  }
+
+  async function handleImportFile(file: File) {
+    setImporting(true);
+    setImportErrors([]);
+    setImportSummary(null);
+    try {
+      const text = await file.text();
+      const rows = parseCsv(text);
+      if (rows.length === 0) {
+        setImportErrors(["No rows found in the CSV."]);
+        return;
+      }
+      const headers = rows[0].map(normalizeHeader);
+      const idxName = findHeaderIndex(headers, ["name", "item_name", "item_description", "description", "item"]);
+      if (idxName < 0) {
+        setImportErrors(["CSV must include a name column. SKU is optional and will be auto-generated if missing."]);
+        return;
+      }
+      const idxDescription = findHeaderIndex(headers, ["description", "desc"]);
+      const idxImageUrl = findHeaderIndex(headers, ["image_url", "image", "picture_link", "picture_links"]);
+      const idxUnitPrice = findHeaderIndex(headers, ["unit_price", "unitprice", "price"]);
+      const idxQty = findHeaderIndex(headers, ["quantity_on_hand", "qty_on_hand", "qty"]);
+      const idxMin = findHeaderIndex(headers, ["min_quantity", "min_qty", "min"]);
+      const idxTracking = findHeaderIndex(headers, ["tracking_type", "tracking"]);
+      const idxUom = findHeaderIndex(headers, ["unit_of_measure", "uom", "unit"]);
+      const idxCategoryId = findHeaderIndex(headers, ["category_id"]);
+      const idxCategory = findHeaderIndex(headers, ["category"]);
+      const idxLocationId = findHeaderIndex(headers, ["location_id"]);
+      const idxLocation = findHeaderIndex(headers, ["location"]);
+      const idxSupplierId = findHeaderIndex(headers, ["supplier_id"]);
+      const idxSupplier = findHeaderIndex(headers, ["supplier"]);
+
+      let created = 0;
+      const errors: string[] = [];
+
+      for (let i = 1; i < rows.length; i += 1) {
+        const row = rows[i];
+        if (row.every((cell) => cell.trim() === "")) continue;
+        const name = (row[idxName] ?? "").trim();
+        if (!name) {
+          errors.push(`Row ${i + 1}: name is required.`);
+          continue;
+        }
+        const description = idxDescription >= 0 ? (row[idxDescription] ?? "").trim() : "";
+        const imageUrlRaw = idxImageUrl >= 0 ? (row[idxImageUrl] ?? "").trim() : "";
+        if (!imageUrlRaw) {
+          errors.push(`Row ${i + 1}: image_url is required.`);
+          continue;
+        }
+        const unitPriceRaw = idxUnitPrice >= 0 ? (row[idxUnitPrice] ?? "").trim() : "";
+        const qtyRaw = idxQty >= 0 ? (row[idxQty] ?? "").trim() : "";
+        const minRaw = idxMin >= 0 ? (row[idxMin] ?? "").trim() : "";
+        const trackingRaw = idxTracking >= 0 ? (row[idxTracking] ?? "").trim() : "";
+        const uomRaw = idxUom >= 0 ? (row[idxUom] ?? "").trim() : "";
+
+        const unitPrice = unitPriceRaw ? toFloat(unitPriceRaw) : null;
+        if (unitPriceRaw && unitPrice === null) {
+          errors.push(`Row ${i + 1}: invalid unit_price.`);
+          continue;
+        }
+        const qty = qtyRaw ? toInt(qtyRaw) : 0;
+        if (qtyRaw && qty === null) {
+          errors.push(`Row ${i + 1}: invalid quantity_on_hand.`);
+          continue;
+        }
+        const minQty = minRaw ? toInt(minRaw) : 0;
+        if (minRaw && minQty === null) {
+          errors.push(`Row ${i + 1}: invalid min_quantity.`);
+          continue;
+        }
+        const trackingType = trackingRaw ? trackingRaw.toUpperCase() : "BATCH";
+        if (!["BATCH", "INDIVIDUAL"].includes(trackingType)) {
+          errors.push(`Row ${i + 1}: tracking_type must be BATCH or INDIVIDUAL.`);
+          continue;
+        }
+
+        let categoryId: number | null = null;
+        if (idxCategoryId >= 0 && (row[idxCategoryId] ?? "").trim()) {
+          const parsed = toInt((row[idxCategoryId] ?? "").trim());
+          if (parsed === null) {
+            errors.push(`Row ${i + 1}: invalid category_id.`);
+            continue;
+          }
+          categoryId = parsed;
+        } else if (idxCategory >= 0 && (row[idxCategory] ?? "").trim()) {
+          const key = (row[idxCategory] ?? "").trim().toLowerCase();
+          const found = categoryIdByName.get(key);
+          if (!found) {
+            errors.push(`Row ${i + 1}: category '${row[idxCategory]}' not found.`);
+            continue;
+          }
+          categoryId = found;
+        }
+
+        let locationId: number | null = null;
+        if (idxLocationId >= 0 && (row[idxLocationId] ?? "").trim()) {
+          const parsed = toInt((row[idxLocationId] ?? "").trim());
+          if (parsed === null) {
+            errors.push(`Row ${i + 1}: invalid location_id.`);
+            continue;
+          }
+          locationId = parsed;
+        } else if (idxLocation >= 0 && (row[idxLocation] ?? "").trim()) {
+          const key = (row[idxLocation] ?? "").trim().toLowerCase();
+          const found = locationIdByName.get(key);
+          if (!found) {
+            errors.push(`Row ${i + 1}: location '${row[idxLocation]}' not found.`);
+            continue;
+          }
+          locationId = found;
+        }
+
+        let supplierId: number | null = null;
+        if (idxSupplierId >= 0 && (row[idxSupplierId] ?? "").trim()) {
+          const parsed = toInt((row[idxSupplierId] ?? "").trim());
+          if (parsed === null) {
+            errors.push(`Row ${i + 1}: invalid supplier_id.`);
+            continue;
+          }
+          supplierId = parsed;
+        } else if (idxSupplier >= 0 && (row[idxSupplier] ?? "").trim()) {
+          const key = (row[idxSupplier] ?? "").trim().toLowerCase();
+          const found = supplierIdByName.get(key);
+          if (!found) {
+            errors.push(`Row ${i + 1}: supplier '${row[idxSupplier]}' not found.`);
+            continue;
+          }
+          supplierId = found;
+        }
+
+        try {
+          await createItem({
+            name,
+            image_url: imageUrlRaw,
+            description: description || null,
+            unit_price: unitPrice,
+            quantity_on_hand: qty ?? 0,
+            min_quantity: minQty ?? 0,
+            tracking_type: trackingType,
+            unit_of_measure: uomRaw || null,
+            category_id: categoryId,
+            location_id: locationId,
+            supplier_id: supplierId
+          });
+          created += 1;
+        } catch (err: any) {
+          errors.push(`Row ${i + 1}: ${getApiErrorMessage(err, "Failed to import item")}`);
+        }
+      }
+
+      setImportErrors(errors);
+      setImportSummary({ created, failed: errors.length });
+      setImportSkipped(null);
+      if (created > 0) {
+        message.success(`Imported ${created} item(s)`);
+        await refresh();
+      }
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function handleImportXlsx(file: File) {
+    setImporting(true);
+    setImportErrors([]);
+    setImportSummary(null);
+    setImportSkipped(null);
+    try {
+      const summary = await importInventoryXlsx(file);
+      setImportSummary({ created: summary.created, failed: summary.failed });
+      setImportSkipped(summary.skipped);
+      setImportErrors(summary.errors || []);
+      if (summary.created > 0) {
+        message.success(`Imported ${summary.created} item(s) from Excel`);
+        await refresh();
+      }
+    } catch (err: any) {
+      setImportErrors([getApiErrorMessage(err, "Failed to import Excel inventory")]);
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -642,7 +1514,7 @@ export default function InventoryPage() {
         transaction_type: stockType,
         quantity_delta: delta,
         supplier_id: stockSupplierId === "" ? null : Number(stockSupplierId),
-        notes: stockNotes.trim() ? stockNotes.trim() : null
+        notes: stockNotes.trim() || null
       });
 
       setStockItem((prev) => (prev ? { ...prev, quantity_on_hand: prev.quantity_on_hand + tx.quantity_delta } : prev));
@@ -650,6 +1522,7 @@ export default function InventoryPage() {
       setStockQty("1");
       await loadTransactions(stockItem.id);
       await refresh();
+      message.success("Stock transaction posted");
     } catch (err: any) {
       setStockError(getApiErrorMessage(err, "Failed to post stock transaction"));
     } finally {
@@ -657,17 +1530,186 @@ export default function InventoryPage() {
     }
   }
 
+  const instanceColumns = useMemo(
+    () => [
+      { title: "Serial", dataIndex: "serial_number", key: "serial_number" },
+      { title: "Status", dataIndex: "status", key: "status" },
+      {
+        title: "Created",
+        dataIndex: "created_at",
+        key: "created_at",
+        render: (value: string) => formatDateTime(value)
+      },
+      {
+        title: "Actions",
+        key: "actions",
+        render: (_: unknown, row: ItemInstance) => (
+          <Space>
+            {instancesItem ? (
+              <Button onClick={() => openInstanceQrModal(instancesItem, row)}>QR</Button>
+            ) : null}
+          </Space>
+        )
+      }
+    ],
+    [instancesItem, openInstanceQrModal]
+  );
+
   return (
-    <div className="container">
-      <Typography.Title level={2} style={{ marginTop: 0 }}>
-        Inventory
-      </Typography.Title>
-      <div className="grid">
-        <Card title={editing ? "Edit item" : "Add item"}>
+    <div className="container page-shell">
+      <div className="page-topbar">
+        <div className="page-heading">
+          <Typography.Title level={2} style={{ marginTop: 0 }}>
+            Inventory
+          </Typography.Title>
+          <Typography.Text type="secondary" className="page-subtitle">
+            Monitor stock, process receipts/issues, and manage item master data with audit-ready tracking.
+          </Typography.Text>
+        </div>
+        <Space wrap className="page-quick-actions">
+          <Button
+            onClick={() => {
+              if (showItemForm) {
+                resetForm();
+                return;
+              }
+              setShowItemForm(true);
+            }}
+          >
+            {showItemForm ? (editing ? "Editing Item" : "Hide Add Item") : "Add New Item"}
+          </Button>
+          <Button onClick={refresh} disabled={loading}>
+            Refresh
+          </Button>
+          <Button onClick={() => setQuickCreateOpen(true)}>Quick Add</Button>
+          <Button onClick={exportCurrentView} disabled={loading || items.length === 0} type="primary">
+            Export current view
+          </Button>
+        </Space>
+      </div>
+      <div className="grid stagger-group">
+        {false ? <Card title="Inventory Guide" className="inventory-guide-card" style={{ gridColumn: "1 / -1" }}>
+          <Typography.Paragraph className="muted" style={{ marginTop: 0 }}>
+            This module manages items (parts), suppliers, and stock movements.
+          </Typography.Paragraph>
+          <div className="inventory-guide-grid">
+            <div className="guide-block">
+              <div className="guide-kicker">Concept</div>
+              <Typography.Title level={5} className="guide-title">
+                Item
+              </Typography.Title>
+              <Typography.Text className="muted">
+                An item (also called a "part") is tracked in inventory.
+              </Typography.Text>
+              <ul className="guide-list">
+                <li>SKU (auto-generated by system)</li>
+                <li>Name</li>
+                <li>Description</li>
+                <li>Unit price (optional)</li>
+                <li>Quantity on hand (current stock)</li>
+                <li>Min quantity (low-stock threshold)</li>
+                <li>Supplier (optional)</li>
+                <li>Tracking type (Batch / Individual)</li>
+                <li>Unit of measure</li>
+                <li>Category</li>
+                <li>Location</li>
+              </ul>
+            </div>
+
+            <div className="guide-block">
+              <div className="guide-kicker">Concept</div>
+              <Typography.Title level={5} className="guide-title">
+                Supplier
+              </Typography.Title>
+              <Typography.Text className="muted">A supplier is a vendor you buy inventory from.</Typography.Text>
+              <ul className="guide-list">
+                <li>Name (unique)</li>
+                <li>Contact info (optional)</li>
+                <li>Notes (optional)</li>
+              </ul>
+            </div>
+
+            <div className="guide-block">
+              <div className="guide-kicker">Concept</div>
+              <Typography.Title level={5} className="guide-title">
+                Stock transaction
+              </Typography.Title>
+              <Typography.Text className="muted">
+                Every stock change is recorded as a transaction to keep an audit trail.
+              </Typography.Text>
+              <ul className="guide-list">
+                <li>
+                  <Typography.Text code>IN</Typography.Text> receiving stock (increases on-hand)
+                </li>
+                <li>
+                  <Typography.Text code>OUT</Typography.Text> issuing stock (decreases on-hand)
+                </li>
+                <li>
+                  <Typography.Text code>ADJUST</Typography.Text> correction (can increase or decrease)
+                </li>
+              </ul>
+            </div>
+
+            <div className="guide-block">
+              <div className="guide-kicker">Workflow</div>
+              <Typography.Title level={5} className="guide-title">
+                Common workflows
+              </Typography.Title>
+              <ul className="guide-list">
+                <li>Create an item</li>
+                <li>Set a reorder point (min quantity)</li>
+                <li>Receive stock against an item (creates an IN transaction)</li>
+                <li>Issue stock (creates an OUT transaction)</li>
+                <li>Investigate why on-hand changed (review transaction history)</li>
+                <li>View low-stock list (items where on-hand is below threshold)</li>
+                <li>Generate item QR codes for labels or quick lookup</li>
+                <li>Export inventory reports (CSV)</li>
+              </ul>
+            </div>
+
+            <div className="guide-block">
+              <div className="guide-kicker">Behavior</div>
+              <Typography.Title level={5} className="guide-title">
+                Low-stock behavior
+              </Typography.Title>
+              <Typography.Text className="muted">An item is considered low stock when:</Typography.Text>
+              <div className="guide-inline">
+                <Typography.Text code>quantity_on_hand &lt;= min_quantity</Typography.Text>
+              </div>
+            </div>
+
+            <div className="guide-block">
+              <div className="guide-kicker">Tools</div>
+              <Typography.Title level={5} className="guide-title">
+                QR codes
+              </Typography.Title>
+              <ul className="guide-list">
+                <li>Each item can generate a QR code that encodes its SKU (format: SKU:&lt;value&gt;).</li>
+                <li>Individually tracked items also have per-instance QR codes (format: SERIAL:&lt;value&gt;).</li>
+                <li>Use labels for quick scanning in the store or at job sites.</li>
+              </ul>
+            </div>
+
+            <div className="guide-block">
+              <div className="guide-kicker">Reports</div>
+              <Typography.Title level={5} className="guide-title">
+                Inventory exports
+              </Typography.Title>
+              <ul className="guide-list">
+                <li>Current view (filters/search applied)</li>
+                <li>All items</li>
+                <li>Low stock only</li>
+                <li>Stock transactions can be exported per item from the stock modal</li>
+              </ul>
+            </div>
+          </div>
+        </Card> : null}
+        {showItemForm ? (
+        <Card title={editing ? "Edit item" : "Add item"} style={{ gridColumn: "1 / -1" }}>
           <Form layout="vertical" onFinish={handleSave}>
             <div className="grid">
-              <Form.Item label="SKU" required>
-                <Input value={sku} onChange={(e) => setSku(e.target.value)} />
+              <Form.Item label="SKU">
+                <Input value={editing ? sku : "Auto-generated by system"} disabled />
               </Form.Item>
               <Form.Item label="Name" required>
                 <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -675,6 +1717,22 @@ export default function InventoryPage() {
               <Form.Item label="Description" style={{ gridColumn: "1 / -1" }}>
                 <Input.TextArea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
               </Form.Item>
+              <Form.Item label="Image URL" required style={{ gridColumn: "1 / -1" }}>
+                <Input
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="https://.../spare-image.jpg"
+                />
+              </Form.Item>
+              {imageUrl.trim() ? (
+                <div style={{ gridColumn: "1 / -1", marginBottom: 8 }}>
+                  <img
+                    src={imageUrl}
+                    alt={name || "Item preview"}
+                    style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid rgba(255,255,255,0.18)" }}
+                  />
+                </div>
+              ) : null}
               <Form.Item label="Tracking">
                 <Select value={trackingType} onChange={(value) => setTrackingType(value)}>
                   <Select.Option value="BATCH">Batch/Quantity</Select.Option>
@@ -748,96 +1806,159 @@ export default function InventoryPage() {
               <Button type="primary" htmlType="submit" disabled={saving}>
                 {editing ? "Save changes" : "Create item"}
               </Button>
-              {editing ? (
-                <Button onClick={resetForm} disabled={saving}>
-                  Cancel
-                </Button>
-              ) : null}
+              <Button onClick={resetForm} disabled={saving}>
+                Cancel
+              </Button>
             </Space>
           </Form>
         </Card>
+        ) : null}
 
         <Card
           title="Item list"
+          className={inventoryPulse ? "success-pulse" : undefined}
+          style={{ gridColumn: "1 / -1" }}
           extra={
-            <Button onClick={refresh} disabled={loading}>
-              Refresh
-            </Button>
+            isMobile ? (
+              <Space>
+                <Button icon={<FilterOutlined />} onClick={() => setMobileFiltersOpen(true)}>
+                  Filters
+                </Button>
+                <Button icon={<ReloadOutlined />} onClick={refresh} disabled={loading}>
+                  Refresh
+                </Button>
+              </Space>
+            ) : (
+              <Button onClick={refresh} disabled={loading}>
+                Refresh
+              </Button>
+            )
           }
         >
-
-          <Form
-            layout="inline"
-            onFinish={() => {
-              setPage(1);
-              setQ(searchInput.trim());
-            }}
-            style={{ marginTop: 12, flexWrap: "wrap" }}
-          >
-            <Form.Item label="Search">
+          {isMobile ? (
+            <Space.Compact style={{ width: "100%", marginTop: 12 }}>
               <Input
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Search by SKU or name"
+                placeholder="Search SKU or item name"
+                onPressEnter={() => {
+                  setPage(1);
+                  setQ(searchInput.trim());
+                }}
               />
-            </Form.Item>
-            <Form.Item label="Page size">
-              <Select<number>
-                value={pageSize}
-                onChange={(value) => {
+              <Button
+                type="primary"
+                onClick={() => {
                   setPage(1);
-                  setPageSize(value);
+                  setQ(searchInput.trim());
                 }}
-                disabled={lowOnly}
-                style={{ width: 120 }}
               >
-                {[10, 20, 50, 100].map((n) => (
-                  <Select.Option key={n} value={n}>
-                    {n}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item>
-              <Space>
-                <Button htmlType="submit" disabled={loading}>
-                  Search
-                </Button>
-                <Button
-                  onClick={() => {
-                    setSearchInput("");
-                    setQ("");
+                Search
+              </Button>
+            </Space.Compact>
+          ) : (
+            <Form
+              layout="inline"
+              onFinish={() => {
+                setPage(1);
+                setQ(searchInput.trim());
+              }}
+              style={{ marginTop: 12, flexWrap: "wrap" }}
+            >
+              <Form.Item label="Search">
+                <Input
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search by SKU or name"
+                />
+              </Form.Item>
+              <Form.Item label="Page size">
+                <Select<number>
+                  value={pageSize}
+                  onChange={(value) => {
                     setPage(1);
+                    setPageSize(value);
                   }}
-                  disabled={loading && items.length === 0}
+                  disabled={lowOnly}
+                  style={{ width: 120 }}
                 >
-                  Clear
-                </Button>
-              </Space>
-            </Form.Item>
-            <Form.Item>
-              <Checkbox
-                checked={lowOnly}
-                onChange={(e) => {
-                  setPage(1);
-                  setLowOnly(e.target.checked);
-                }}
-              >
-                Low stock only
-              </Checkbox>
-            </Form.Item>
-          </Form>
+                  {[10, 20, 50, 100].map((n) => (
+                    <Select.Option key={n} value={n}>
+                      {n}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item>
+                <Space>
+                  <Button htmlType="submit" disabled={loading}>
+                    Search
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setSearchInput("");
+                      setQ("");
+                      setPage(1);
+                    }}
+                    disabled={loading && items.length === 0}
+                  >
+                    Clear
+                  </Button>
+                </Space>
+              </Form.Item>
+              <Form.Item>
+                <Checkbox
+                  checked={lowOnly}
+                  onChange={(e) => {
+                    setPage(1);
+                    setLowOnly(e.target.checked);
+                  }}
+                >
+                  Low stock only
+                </Checkbox>
+              </Form.Item>
+            </Form>
+          )}
 
           {listError ? <Typography.Text type="danger">{listError}</Typography.Text> : null}
 
-          <Table
-            rowKey="id"
-            loading={loading}
-            dataSource={items}
-            columns={itemColumns}
-            pagination={false}
-            locale={{ emptyText: lowOnly ? "No low stock items." : "No items found." }}
-          />
+          {isMobile ? (
+            <PullToRefresh
+              onRefresh={async () => {
+                await refresh();
+              }}
+            >
+              <div className="mobile-inventory-list">
+                {loading ? (
+                  <Typography.Text type="secondary">Loading inventory...</Typography.Text>
+                ) : mobileItemCards.length > 0 ? (
+                  mobileItemCards
+                ) : lowOnly ? (
+                  <SmartEmptyState compact title="No low stock items" description="Everything is currently above its minimum threshold." />
+                ) : (
+                  <SmartEmptyState compact title="No items found" description="Try adjusting filters or create a new item." />
+                )}
+              </div>
+            </PullToRefresh>
+          ) : (
+            <Table
+              className="pro-table"
+              rowKey="id"
+              loading={loading}
+              dataSource={items}
+              columns={itemColumns}
+              size="small"
+              scroll={{ x: 980 }}
+              pagination={false}
+              locale={{
+                emptyText: lowOnly ? (
+                  <SmartEmptyState compact title="No low stock items" description="Everything is currently above its minimum threshold." />
+                ) : (
+                  <SmartEmptyState compact title="No items found" description="Try adjusting filters or create a new item." />
+                )
+              }}
+            />
+          )}
 
           {!loading && !lowOnly ? (
             <Space style={{ marginTop: 12, display: "flex", justifyContent: "space-between" }}>
@@ -871,13 +1992,297 @@ export default function InventoryPage() {
           </Space>
           {reportError ? <Typography.Text type="danger">{reportError}</Typography.Text> : null}
         </Card>
+
+        <Card
+          title="Reorder suggestions"
+          style={{ gridColumn: "1 / -1" }}
+          extra={
+            <Button onClick={loadReorder} disabled={reorderLoading}>
+              Refresh
+            </Button>
+          }
+        >
+          <Typography.Text type="secondary">
+            Suggested reorder quantities based on minimum thresholds.
+          </Typography.Text>
+          <Table
+            className="pro-table"
+            rowKey="id"
+            loading={reorderLoading}
+            dataSource={pagedReorderItems}
+            columns={reorderColumns}
+            pagination={{
+              current: reorderPage,
+              pageSize: reorderPageSize,
+              total: reorderItems.length,
+              showSizeChanger: true,
+              pageSizeOptions: ["10", "20", "30", "50"],
+              onChange: (nextPage, nextPageSize) => {
+                setReorderPage(nextPage);
+                setReorderPageSize(nextPageSize);
+              }
+            }}
+            style={{ marginTop: 12 }}
+            locale={{ emptyText: <SmartEmptyState compact title="No reorder suggestions" description="No items currently require replenishment." /> }}
+          />
+          <Space style={{ marginTop: 12, display: "flex", justifyContent: "space-between" }}>
+            <Typography.Text type="secondary">
+              {reorderItems.length} item(s) below threshold
+            </Typography.Text>
+            <Button
+              type="primary"
+              onClick={handleCreateReorderRequest}
+              disabled={reorderSubmitting || reorderItems.length === 0}
+            >
+              Create stock request
+            </Button>
+          </Space>
+          {reorderError ? <Typography.Text type="danger">{reorderError}</Typography.Text> : null}
+        </Card>
+
+        <Card title="Import items" style={{ gridColumn: "1 / -1" }}>
+          <Typography.Text type="secondary">
+            Import items from CSV or the existing Excel inventory file. Use the template for correct CSV headers.
+          </Typography.Text>
+          <Space wrap style={{ marginTop: 8 }}>
+            <Button onClick={downloadImportTemplate} disabled={importing}>
+              Download template
+            </Button>
+            <Upload
+              accept=".csv"
+              showUploadList={false}
+              beforeUpload={(file) => {
+                handleImportFile(file as File);
+                return false;
+              }}
+            >
+              <Button icon={<UploadOutlined />} disabled={importing}>
+                {importing ? "Importing..." : "Import CSV"}
+              </Button>
+            </Upload>
+            <Upload
+              accept=".xlsx"
+              showUploadList={false}
+              beforeUpload={(file) => {
+                handleImportXlsx(file as File);
+                return false;
+              }}
+            >
+              <Button icon={<UploadOutlined />} disabled={importing}>
+                {importing ? "Importing..." : "Import Excel (.xlsx)"}
+              </Button>
+            </Upload>
+          </Space>
+          {importSummary ? (
+            <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>
+              Imported {importSummary.created} item(s), {importSummary.failed} failed.
+              {importSkipped != null ? ` Skipped ${importSkipped}.` : ""}
+            </Typography.Text>
+          ) : null}
+          {importErrors.length > 0 ? (
+            <div style={{ marginTop: 8 }}>
+              <Typography.Text type="danger">Import errors:</Typography.Text>
+              <ul className="import-error-list">
+                {importErrors.slice(0, 10).map((err, idx) => (
+                  <li key={idx}>{err}</li>
+                ))}
+              </ul>
+              {importErrors.length > 10 ? (
+                <Typography.Text type="secondary">
+                  Showing first 10 errors. Fix the CSV and re-upload.
+                </Typography.Text>
+              ) : null}
+            </div>
+          ) : null}
+        </Card>
       </div>
+
+      <Drawer
+        title="Inventory filters"
+        placement="bottom"
+        height={isMobile ? "72vh" : 420}
+        open={isMobile && mobileFiltersOpen}
+        onClose={() => setMobileFiltersOpen(false)}
+      >
+        <Form layout="vertical">
+          <Form.Item label="Search">
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search by SKU or name"
+            />
+          </Form.Item>
+          <Form.Item label="Page size">
+            <Select<number>
+              value={pageSize}
+              onChange={(value) => {
+                setPage(1);
+                setPageSize(value);
+              }}
+              disabled={lowOnly}
+            >
+              {[10, 20, 50, 100].map((n) => (
+                <Select.Option key={n} value={n}>
+                  {n}
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item>
+            <Checkbox
+              checked={lowOnly}
+              onChange={(e) => {
+                setPage(1);
+                setLowOnly(e.target.checked);
+              }}
+            >
+              Low stock only
+            </Checkbox>
+          </Form.Item>
+          <Space>
+            <Button
+              type="primary"
+              onClick={() => {
+                setPage(1);
+                setQ(searchInput.trim());
+                setMobileFiltersOpen(false);
+              }}
+            >
+              Apply filters
+            </Button>
+            <Button
+              onClick={() => {
+                setSearchInput("");
+                setQ("");
+                setPage(1);
+                setLowOnly(false);
+              }}
+            >
+              Reset
+            </Button>
+          </Space>
+        </Form>
+      </Drawer>
+
+      {isMobile ? (
+        <FloatingBubble
+          axis="xy"
+          magnetic="x"
+          className="mobile-fab"
+          onClick={() => {
+            setShowItemForm(true);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        >
+          <PlusOutlined />
+        </FloatingBubble>
+      ) : null}
+
+      <Drawer
+        title="Quick Add Item"
+        open={quickCreateOpen}
+        onClose={() => setQuickCreateOpen(false)}
+        width={420}
+        destroyOnClose
+        className="motion-drawer"
+      >
+        <Form layout="vertical" onFinish={handleQuickCreateItem}>
+          <Form.Item label="Name" required>
+            <Input value={quickName} onChange={(e) => setQuickName(e.target.value)} placeholder="Item name" />
+          </Form.Item>
+          <Form.Item label="Tracking Type">
+            <Select value={quickTrackingType} onChange={(value) => setQuickTrackingType(value)}>
+              <Select.Option value="BATCH">BATCH</Select.Option>
+              <Select.Option value="INDIVIDUAL">INDIVIDUAL</Select.Option>
+            </Select>
+          </Form.Item>
+          <Space size="middle" style={{ width: "100%" }}>
+            <Form.Item label="On Hand" style={{ flex: 1 }}>
+              <InputNumber min={0} value={quickQtyOnHand} onChange={(value) => setQuickQtyOnHand(Number(value) || 0)} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item label="Minimum" style={{ flex: 1 }}>
+              <InputNumber min={0} value={quickMinQty} onChange={(value) => setQuickMinQty(Number(value) || 0)} style={{ width: "100%" }} />
+            </Form.Item>
+          </Space>
+          <Form.Item label="Unit Price (optional)">
+            <InputNumber
+              min={0}
+              value={quickUnitPrice as number | null}
+              onChange={(value) => setQuickUnitPrice(value == null ? null : Number(value))}
+              style={{ width: "100%" }}
+            />
+          </Form.Item>
+          {quickError ? <Typography.Text type="danger">{quickError}</Typography.Text> : null}
+          <Space style={{ marginTop: 12 }}>
+            <Button onClick={() => setQuickCreateOpen(false)}>Cancel</Button>
+            <Button type="primary" htmlType="submit" loading={quickSaving}>
+              Create
+            </Button>
+          </Space>
+        </Form>
+      </Drawer>
+
+      <Modal
+        open={!!attachmentItem}
+        onCancel={closeAttachmentsModal}
+        footer={null}
+        title="Item attachments"
+        width={760}
+      >
+        {attachmentItem ? (
+          <Space direction="vertical" style={{ width: "100%" }}>
+            <Typography.Text type="secondary">
+              {attachmentItem.sku} - {attachmentItem.name}
+            </Typography.Text>
+            <Upload
+              showUploadList={false}
+              beforeUpload={(file) => {
+                handleUploadAttachment(file as File);
+                return false;
+              }}
+            >
+              <Button icon={<UploadOutlined />} loading={attachmentUploading}>
+                Upload attachment
+              </Button>
+            </Upload>
+            {attachmentError ? <Typography.Text type="danger">{attachmentError}</Typography.Text> : null}
+            <Table
+              className="pro-table"
+              rowKey="id"
+              dataSource={attachments}
+              pagination={false}
+              columns={[
+                { title: "File", dataIndex: "file_name", key: "file_name" },
+                {
+                  title: "Size",
+                  dataIndex: "file_size",
+                  key: "file_size",
+                  render: (value: number) => `${Math.ceil(value / 1024)} KB`
+                },
+                {
+                  title: "Actions",
+                  key: "actions",
+                  render: (_: unknown, row: ProductAttachment) => (
+                    <Space>
+                      <Button onClick={() => handleDownloadAttachment(row)}>Download</Button>
+                      <Button danger onClick={() => handleDeleteAttachment(row)}>
+                        Delete
+                      </Button>
+                    </Space>
+                  )
+                }
+              ]}
+              locale={{ emptyText: <SmartEmptyState compact title="No attachments" description="Upload drawings, manuals, or photos for this item." /> }}
+            />
+          </Space>
+        ) : null}
+      </Modal>
 
       <Modal open={!!stockItem} onCancel={closeStockModal} footer={null} title="Stock movement" width={900}>
         {stockItem ? (
           <div>
             <Typography.Text type="secondary">
-              {stockItem.sku} — {stockItem.name}
+              {stockItem.sku} - {stockItem.name}
             </Typography.Text>
 
             <Space style={{ marginTop: 12, display: "flex", justifyContent: "space-between" }}>
@@ -945,12 +2350,13 @@ export default function InventoryPage() {
               </Button>
             </Space>
             <Table
+              className="pro-table"
               rowKey="id"
               loading={txLoading}
               dataSource={transactions}
               columns={transactionColumns}
               pagination={false}
-              locale={{ emptyText: "No transactions yet." }}
+              locale={{ emptyText: <SmartEmptyState compact title="No transactions yet" description="Stock movement history will appear here." /> }}
             />
           </div>
         ) : null}
@@ -960,7 +2366,7 @@ export default function InventoryPage() {
         {qrItem ? (
           <div>
             <Typography.Text type="secondary">
-              {qrItem.sku} — {qrItem.name}
+              {qrItem.sku} - {qrItem.name}
             </Typography.Text>
 
             {qrLoading ? (
@@ -978,11 +2384,96 @@ export default function InventoryPage() {
                 <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>
                   Encoded value: <strong>{qrText}</strong>
                 </Typography.Text>
-                <Space>
+                <Space wrap>
                   <Button onClick={() => downloadTextFile(`qr-${qrItem.sku}.svg`, qrSvg, "image/svg+xml")}>
                     Download SVG
                   </Button>
                   <Button onClick={() => navigator.clipboard?.writeText(qrText)}>Copy value</Button>
+                  <Button onClick={handleDownloadLabelPdf}>Download Label PDF</Button>
+                  <Space.Compact>
+                    <Button disabled>W</Button>
+                    <InputNumber min={20} value={labelWidthMm} onChange={(value) => setLabelWidthMm(Number(value) || 50)} />
+                    <Button disabled>mm</Button>
+                  </Space.Compact>
+                  <Space.Compact>
+                    <Button disabled>H</Button>
+                    <InputNumber
+                      min={20}
+                      value={labelHeightMm}
+                      onChange={(value) => setLabelHeightMm(Number(value) || 30)}
+                    />
+                    <Button disabled>mm</Button>
+                  </Space.Compact>
+                  <Button type="primary" onClick={handlePrintLabel}>
+                    Print label
+                  </Button>
+                </Space>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal open={!!instanceQr} onCancel={closeInstanceQrModal} footer={null} title="Instance QR code" width={520}>
+        {instanceQr ? (
+          <div>
+            <Typography.Text type="secondary">
+              {instanceQr.item.sku} - {instanceQr.item.name}
+            </Typography.Text>
+            <Typography.Text style={{ display: "block", marginTop: 6 }}>
+              Serial: <strong>{instanceQr.instance.serial_number}</strong>
+            </Typography.Text>
+
+            {instanceQrLoading ? (
+              <Typography.Text type="secondary" style={{ display: "block", marginTop: 12 }}>
+                Generating QR code...
+              </Typography.Text>
+            ) : null}
+            {instanceQrError ? <Typography.Text type="danger">{instanceQrError}</Typography.Text> : null}
+
+            {instanceQrSvg ? (
+              <div style={{ marginTop: 12 }}>
+                <Card style={{ display: "flex", justifyContent: "center" }}>
+                  <img
+                    src={instanceQrDataUrl}
+                    alt={`QR for ${instanceQr.instance.serial_number}`}
+                    style={{ width: 220, height: 220 }}
+                  />
+                </Card>
+                <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>
+                  Encoded value: <strong>{instanceQrText}</strong>
+                </Typography.Text>
+                <Space wrap>
+                  <Button
+                    onClick={() =>
+                      downloadTextFile(`qr-${instanceQr.instance.serial_number}.svg`, instanceQrSvg, "image/svg+xml")
+                    }
+                  >
+                    Download SVG
+                  </Button>
+                  <Button onClick={() => navigator.clipboard?.writeText(instanceQrText)}>Copy value</Button>
+                  <Button onClick={handleDownloadInstanceLabelPdf}>Download Label PDF</Button>
+                  <Space.Compact>
+                    <Button disabled>W</Button>
+                    <InputNumber
+                      min={20}
+                      value={instanceLabelWidthMm}
+                      onChange={(value) => setInstanceLabelWidthMm(Number(value) || 50)}
+                    />
+                    <Button disabled>mm</Button>
+                  </Space.Compact>
+                  <Space.Compact>
+                    <Button disabled>H</Button>
+                    <InputNumber
+                      min={20}
+                      value={instanceLabelHeightMm}
+                      onChange={(value) => setInstanceLabelHeightMm(Number(value) || 30)}
+                    />
+                    <Button disabled>mm</Button>
+                  </Space.Compact>
+                  <Button type="primary" onClick={handlePrintInstanceLabel}>
+                    Print label
+                  </Button>
                 </Space>
               </div>
             ) : null}
@@ -994,7 +2485,7 @@ export default function InventoryPage() {
         {instancesItem ? (
           <div>
             <Typography.Text type="secondary">
-              {instancesItem.sku} — {instancesItem.name}
+              {instancesItem.sku} - {instancesItem.name}
             </Typography.Text>
 
             <Card style={{ marginTop: 12 }}>
@@ -1016,14 +2507,60 @@ export default function InventoryPage() {
             {instancesError ? <Typography.Text type="danger">{instancesError}</Typography.Text> : null}
 
             <Table
+              className="pro-table"
               rowKey="id"
               loading={instancesLoading}
               dataSource={instances}
               columns={instanceColumns}
               pagination={false}
               style={{ marginTop: 12 }}
-              locale={{ emptyText: "No instances yet." }}
+              locale={{ emptyText: <SmartEmptyState compact title="No instances yet" description="Generate serialised instances for this item." /> }}
             />
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={!!locationItem}
+        onCancel={closeLocationModal}
+        onOk={handleSaveLocations}
+        okText="Save locations"
+        confirmLoading={locationSaving}
+        title="Item locations"
+        width={700}
+      >
+        {locationItem ? (
+          <div>
+            <Typography.Text type="secondary">
+              {locationItem.sku} - {locationItem.name}
+            </Typography.Text>
+            <Table
+              className="pro-table"
+              rowKey="location_id"
+              dataSource={locationStocks}
+              pagination={false}
+              style={{ marginTop: 12 }}
+              columns={[
+                { title: "Location", dataIndex: "location_name", key: "location_name" },
+                {
+                  title: "Quantity",
+                  key: "quantity_on_hand",
+                  render: (_: unknown, row: LocationStock) => (
+                    <InputNumber
+                      min={0}
+                      value={row.quantity_on_hand}
+                      onChange={(value) => updateLocationQty(row.location_id, Number(value) || 0)}
+                    />
+                  )
+                }
+              ]}
+              locale={{ emptyText: <SmartEmptyState compact title="No location balances" description="Add quantities by location for this item." /> }}
+            />
+            {locationError ? (
+              <Typography.Text type="danger" style={{ display: "block", marginTop: 8 }}>
+                {locationError}
+              </Typography.Text>
+            ) : null}
           </div>
         ) : null}
       </Modal>
