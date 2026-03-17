@@ -8,7 +8,7 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
-        value: sqlite:///./westernpumps.db
+        value: sqlite:////var/opt/render/project/./westernpumps.db
       - key: JWT_SECRET
         value: replace-with-a-long-random-secret
       - key: CORS_ORIGINS
