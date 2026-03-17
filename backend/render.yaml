@@ -12,7 +12,7 @@ services:
       - key: JWT_SECRET
         value: replace-with-a-long-random-secret
       - key: CORS_ORIGINS
-        value: "https://*.vercel.app"
+        value: "https://your-project.vercel.app,https://your-project-name*.vercel.app"
       - key: DISABLE_AUTH
         value: "false"
       - key: AUTO_CREATE_TABLES
