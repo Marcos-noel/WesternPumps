@@ -110,7 +110,7 @@ def ensure_schema(engine: Engine) -> None:
             text(
                 """
                 INSERT INTO tenants (id, name, code, is_active, created_at, updated_at)
-                SELECT 1, 'WesternPumps', 'default', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                SELECT 1, 'WesternPumps', 'default', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE id = 1)
                 """
             )
