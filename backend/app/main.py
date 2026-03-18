@@ -198,6 +198,15 @@ def create_app() -> FastAPI:
         allow_origins = ["*"]
         allow_credentials = False
     else:
+        # Production: ensure common frontend domains are allowed
+        # Add common production domains if not already present
+        production_domains = [
+            "https://western-pumps-np2i.vercel.app",
+            "https://westernpumps-vk0u.onrender.com",
+        ]
+        for domain in production_domains:
+            if domain not in origins:
+                origins.append(domain)
         allow_origins = origins
         allow_credentials = True
 
