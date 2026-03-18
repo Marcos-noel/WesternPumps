@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 POSTGRES_URL = os.environ.get(
     "DATABASE_URL",
-"postgresql://westernpumps:JD10CKR8BvvtVGA7an6zry8IphkCtjm1@dpg-d6spqstm5p6s73b01030-a/westernpumps?sslmode=require"
+"postgresql://marcos_noel23:xwszqrbJEzg3EMfZ3jp3xiknFzJ5Pidi@dpg-d6spqstm5p6s73b01030-a.oregon-postgres.render.com/westernpumps?sslmode=require"
 )
 
 SQLITE_DB = "../devdata/westernpumps.db"
@@ -62,8 +62,8 @@ def export_users(sqlite_conn, postgres_conn):
             continue
         
         postgres_cursor.execute("""
-            INSERT INTO users (email, phone, full_name, role, password_hash, is_active, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+INSERT INTO users (tenant_id, email, phone, full_name, role, password_hash, is_active, created_at, updated_at)
+VALUES (1, %s, %s, %s, %s, %s, %s::boolean, %s, %s)
         """, user[1:])
         imported += 1
         print(f"  Imported {email}")
