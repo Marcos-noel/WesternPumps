@@ -142,6 +142,18 @@ def ensure_schema(engine: Engine) -> None:
         if table is not None:
             table.create(bind=engine)
 
+    # Add missing columns for job approval workflow (additive migration)
+    with engine.begin() as conn:
+        # Check if jobs table exists and add missing columns
+        if inspector.has_table("jobs"):
+            existing_columns = [c["name"] for c in inspector.get_columns("jobs")]
+            if "approved_by_user_id" not in existing_columns:
+                conn.execute(text("ALTER TABLE jobs ADD COLUMN approved_by_user_id INTEGER"))
+            if "approved_at" not in existing_columns:
+                conn.execute(text("ALTER TABLE jobs ADD COLUMN approved_at TIMESTAMP"))
+            if "approval_notes" not in existing_columns:
+                conn.execute(text("ALTER TABLE jobs ADD COLUMN approval_notes TEXT"))
+
     tenant_tables = [
         "users",
         "customers",
