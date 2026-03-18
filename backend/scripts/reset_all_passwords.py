@@ -34,9 +34,9 @@ def reset_all_passwords(new_password: str):
         sqlite_path = backend_dir / 'westernpumps.db'
         if not sqlite_path.exists():
              # Check devdata as fallback
-             sqlite_path = backend_dir / 'devdata' / 'westernpumps.db'
+        sqlite_path = backend_dir / 'devdata' / 'westernpumps.db'
         
-        db_url = f"sqlite:///{sqlite_path.resolve().as_posix()}"
+        db_url = os.getenv('DATABASE_URL') or f"sqlite:///{sqlite_path.resolve().as_posix()}"
         print(f"No DATABASE_URL found in .env, using local SQLite: {sqlite_path}")
     else:
         print(f"Using database configured in .env")
