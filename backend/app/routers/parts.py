@@ -921,3 +921,70 @@ def list_low_stock(
     if _can_view_stock_levels(current_user):
         return [ItemRead.model_validate(p, from_attributes=True) for p in items]
     return [_sanitize_item_for_technician(p) for p in items]
+
+
+# ============================================
+# QR Code and Verification Endpoints (Public)
+# ============================================
+
+
+@api_router.get("/parts/{part_id}/qrcode")
+def get_part_qrcode(
+    part_id: int,
+    db: Session = Depends(get_db),
+):
+    """Generate a QR code for a part that can be scanned by any QR reader."""
+    part = db.get(Part, part_id)
+    if not part:
+        raise HTTPException(status_code=404, detail="Part not found")
+
+    # Generate verification URL
+    # Format: https://western-pumps-np2i.vercel.app/verify/{part_id}?sku={sku}
+    frontend_base = getattr(settings, 'frontend_base_url', 'https://western-pumps-np2i.vercel.app')
+    verify_url = f"{frontend_base.rstrip('/')}/verify/{part_id}?sku={part.sku}"
+
+    # Generate QR code
+    qr = segno.make(verify_url)
+    buffer = io.BytesIO()
+    qr.save(buffer, kind="png", scale=5)
+    buffer.seek(0)
+
+    return Response(content=buffer.getvalue(), media_type="image/png")
+
+
+# Public verification endpoint (no auth required)
+@api_router.get("/verify/{part_id}")
+def verify_part(
+    part_id: int,
+    sku: str = "",
+    db: Session = Depends(get_db),
+):
+    """Public endpoint to verify a part belongs to Western Pumps."""
+    part = db.get(Part, part_id)
+    if not part:
+        return {
+            "verified": False,
+            "message": "Item not found in Western Pumps inventory",
+            "part_id": part_id,
+        }
+
+    # Verify SKU matches
+    if sku and part.sku != sku:
+        return {
+            "verified": False,
+            "message": "SKU mismatch - this may be a counterfeit item",
+            "part_id": part_id,
+            "sku": part.sku,
+        }
+
+    return {
+        "verified": True,
+        "message": "Genuine Western Pumps item",
+        "part": {
+            "id": part.id,
+            "sku": part.sku,
+            "name": part.name,
+            "is_active": part.is_active,
+            "quantity_on_hand": part.quantity_on_hand,
+        },
+    }
