@@ -185,12 +185,10 @@ def create_app() -> FastAPI:
         middleware=[Middleware(RequestErrorLoggingMiddleware, logger=error_logger)],
     )
 
-    # CORS configuration - always allow localhost origins for development
-    # Check if we're in development mode (disable_auth is True) or if origins are configured
+    # CORS configuration
     origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
     
-    # In local dev, allow all origins to avoid CORS friction between Vite ports.
-    # Also check if we're running on localhost (development)
+    # Check if running in development (localhost) or production
     is_local_dev = any("localhost" in o or "127.0.0.1" in o for o in origins)
     
     if settings.disable_auth or is_local_dev:
@@ -198,13 +196,15 @@ def create_app() -> FastAPI:
         allow_origins = ["*"]
         allow_credentials = False
     else:
-        # Production: ensure common frontend domains are allowed
-        # Add common production domains if not already present
-        production_domains = [
+        # Production: add common frontend domains as fallback and allow all for now
+        # This ensures compatibility with various frontend deployments
+        fallback_domains = [
             "https://western-pumps-np2i.vercel.app",
             "https://westernpumps-vk0u.onrender.com",
+            "https://*.vercel.app",
+            "https://*.render.com",
         ]
-        for domain in production_domains:
+        for domain in fallback_domains:
             if domain not in origins:
                 origins.append(domain)
         allow_origins = origins
