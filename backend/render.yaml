@@ -10,18 +10,18 @@ services:
       - key: DATABASE_URL
         value: postgresql://westernpumps:JD10CKR8BvvtVGA7an6zry8IphkCtjm1@dpg-d6spqstm5p6s73b01030-a/westernpumps
       - key: JWT_SECRET
-        value: replace-with-a-long-random-secret
+        value: "westernpumps-jwt-secret-key-2024-secure"
       - key: CORS_ORIGINS
         value: "https://western-pumps-np2i.vercel.app,https://westernpumps-vk0u.onrender.com"
       - key: DISABLE_AUTH
-        value: "true"
+        value: "false"
       - key: ENABLE_AUTH_BOOTSTRAP
         value: "true"
       - key: SEED_ADMIN_EMAIL
-        value: "marcosngeso20@gmail.com"
+        value: "admin@gmail.com"
       - key: SEED_ADMIN_PASSWORD
         value: "Westernpumps@26"
       - key: SEED_ADMIN_FULL_NAME
-        value: "Marcos Admin"
+        value: "Admin"
       - key: ENFORCE_HTTPS
         value: "true"
