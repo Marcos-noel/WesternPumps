@@ -605,6 +605,46 @@ a {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+.mobile-sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.mobile-sidebar-drawer .ant-drawer {
+  max-width: 85vw;
+}
+
+.mobile-sidebar-drawer .ant-drawer-content {
+  border-radius: 0 20px 20px 0 !important;
+  backdrop-filter: blur(20px);
+}
+
+.mobile-sidebar-drawer .ant-drawer-header {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+}
+
+.mobile-sidebar-drawer .ant-drawer-body {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+* {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.ant-table-wrapper {
+  overflow-x: auto;
+}
+
+.ant-table-content {
+  min-width: 0;
+}
+
 .mobile-fab {
   --initial-position-bottom: 92px;
   --initial-position-right: 18px;

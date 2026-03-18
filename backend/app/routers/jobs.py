@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -8,7 +9,7 @@ from app.db import get_db
 from app.deps import get_current_user, require_roles
 from app.audit import log_audit
 from app.event_stream import emit_domain_event
-from app.models import Customer, Job, User
+from app.models import Customer, Job, JobPhoto, User
 from app.notifications import dispatch_alert
 from app.schemas import JobCreate, JobRead, JobUpdate
 
@@ -164,3 +165,261 @@ def delete_job(job_id: int, db: Session = Depends(get_db), current_user=Depends(
     log_audit(db, current_user, "delete", "job", entity_id=job_id)
     db.commit()
     return None
+
+
+# ============================================
+# Job Photo Upload Endpoints
+# ============================================
+
+
+@router.post(
+    "/{job_id}/photos",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles("technician", "lead_technician", "store_manager", "manager"))],
+)
+async def upload_job_photo(
+    job_id: int,
+    file: UploadFile = File(...),
+    photo_type: str = "GENERAL",
+    description: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload a photo to a job card. Technicians can add BEFORE, AFTER, PROGRESS, or DEFECT photos."""
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Photo exceeds 10MB limit")
+
+    # Validate photo_type
+    valid_types = ["GENERAL", "BEFORE", "AFTER", "DEFECT", "PROGRESS"]
+    if photo_type.upper() not in valid_types:
+        photo_type = "GENERAL"
+
+    photo = JobPhoto(
+        job_id=job_id,
+        uploaded_by_user_id=current_user.id,
+        file_name=file.filename or "photo.jpg",
+        content_type=file.content_type,
+        file_size=len(content),
+        file_data=content,
+        description=description,
+        photo_type=photo_type.upper(),
+    )
+    db.add(photo)
+    log_audit(
+        db, current_user, "create", "job_photo",
+        entity_id=job_id, detail={"file_name": photo.file_name, "photo_type": photo_type}
+    )
+    db.commit()
+    db.refresh(photo)
+
+    return {
+        "id": photo.id,
+        "job_id": photo.job_id,
+        "file_name": photo.file_name,
+        "photo_type": photo.photo_type,
+        "description": photo.description,
+        "created_at": photo.created_at.isoformat(),
+    }
+
+
+@router.get("/{job_id}/photos", dependencies=[Depends(get_current_user)])
+def list_job_photos(
+    job_id: int,
+    db: Session = Depends(get_db),
+):
+    """List all photos for a job card."""
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    photos = db.scalars(select(JobPhoto).where(JobPhoto.job_id == job_id)).all()
+
+    return [
+        {
+            "id": p.id,
+            "file_name": p.file_name,
+            "photo_type": p.photo_type,
+            "description": p.description,
+            "content_type": p.content_type,
+            "file_size": p.file_size,
+            "uploaded_by": p.uploaded_by.email if p.uploaded_by else None,
+            "created_at": p.created_at.isoformat(),
+        }
+        for p in photos
+    ]
+
+
+@router.get("/{job_id}/photos/{photo_id}/download", dependencies=[Depends(get_current_user)])
+def download_job_photo(
+    job_id: int,
+    photo_id: int,
+    db: Session = Depends(get_db),
+):
+    """Download a job photo."""
+    photo = db.get(JobPhoto, photo_id)
+    if not photo or photo.job_id != job_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+
+    headers = {"Content-Disposition": f'inline; filename="{photo.file_name}"'}
+    return Response(
+        content=photo.file_data,
+        media_type=photo.content_type or "image/jpeg",
+        headers=headers
+    )
+
+
+@router.delete(
+    "/{job_id}/photos/{photo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_roles("lead_technician", "store_manager", "manager"))],
+)
+def delete_job_photo(
+    job_id: int,
+    photo_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a job photo."""
+    photo = db.get(JobPhoto, photo_id)
+    if not photo or photo.job_id != job_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+
+    db.delete(photo)
+    log_audit(db, current_user, "delete", "job_photo", entity_id=photo_id)
+    db.commit()
+    return None
+
+
+# ============================================
+# Job Approval Workflow Endpoints
+# ============================================
+
+
+@router.post(
+    "/{job_id}/submit-for-approval",
+    response_model=JobRead,
+    dependencies=[Depends(require_roles("technician", "lead_technician"))],
+)
+def submit_job_for_approval(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> JobRead:
+    """Submit a job for approval. Changes status to 'pending_approval'."""
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    if job.status not in ["in_progress"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job must be in progress to submit for approval"
+        )
+
+    job.status = "pending_approval"
+    log_audit(db, current_user, "submit_for_approval", "job", entity_id=job_id)
+    db.commit()
+    db.refresh(job)
+
+    dispatch_alert(
+        db,
+        actor=current_user,
+        event="job_pending_approval",
+        subject=f"Job #{job.id} awaiting approval",
+        body=f"Job '{job.title}' submitted for approval by {current_user.email}",
+    )
+
+    return JobRead.model_validate(job, from_attributes=True)
+
+
+@router.post(
+    "/{job_id}/approve",
+    response_model=JobRead,
+    dependencies=[Depends(require_roles("manager", "admin", "lead_technician"))],
+)
+def approve_job(
+    job_id: int,
+    notes: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> JobRead:
+    """Approve a job. Changes status to 'completed'."""
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    if job.status != "pending_approval":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job must be pending approval to be approved"
+        )
+
+    job.status = "completed"
+    job.approved_by_user_id = current_user.id
+    job.approved_at = datetime.now()
+    job.approval_notes = notes
+
+    log_audit(db, current_user, "approve", "job", entity_id=job_id, detail={"notes": notes})
+    db.commit()
+    db.refresh(job)
+
+    if job.assigned_to and job.assigned_to.email:
+        dispatch_alert(
+            db,
+            actor=current_user,
+            event="job_approved",
+            subject=f"Job #{job.id} approved",
+            body=f"Your job '{job.title}' has been approved. Notes: {notes}",
+            extra_recipients=[job.assigned_to.email],
+        )
+
+    return JobRead.model_validate(job, from_attributes=True)
+
+
+@router.post(
+    "/{job_id}/reject",
+    response_model=JobRead,
+    dependencies=[Depends(require_roles("manager", "admin", "lead_technician"))],
+)
+def reject_job(
+    job_id: int,
+    reason: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> JobRead:
+    """Reject a job. Changes status back to 'in_progress'."""
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    if job.status != "pending_approval":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job must be pending approval to be rejected"
+        )
+
+    job.status = "in_progress"
+    job.approval_notes = f"REJECTED: {reason}"
+
+    log_audit(db, current_user, "reject", "job", entity_id=job_id, detail={"reason": reason})
+    db.commit()
+    db.refresh(job)
+
+    if job.assigned_to and job.assigned_to.email:
+        dispatch_alert(
+            db,
+            actor=current_user,
+            event="job_rejected",
+            subject=f"Job #{job.id} needs revision",
+            body=f"Your job '{job.title}' was returned for revision. Reason: {reason}",
+            extra_recipients=[job.assigned_to.email],
+        )
+
+    return JobRead.model_validate(job, from_attributes=True)

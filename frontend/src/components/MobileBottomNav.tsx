@@ -1,6 +1,6 @@
 import { TabBar } from "antd-mobile";
 import { Badge } from "antd";
-import { BellOutlined } from "@ant-design/icons";
+import { BellOutlined, MenuFoldOutlined } from "@ant-design/icons";
 import { Dashboard as DashboardIcon, Inventory as InventoryIcon, AccountCircle as AccountCircleIcon } from "@mui/icons-material";
 import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -8,15 +8,22 @@ import { useNotifications } from "../state/NotificationsContext";
 
 type Props = {
   canViewInventory: boolean;
+  onToggleDrawer?: () => void;
 };
 
-export default function MobileBottomNav({ canViewInventory }: Props) {
+export default function MobileBottomNav({ canViewInventory, onToggleDrawer }: Props) {
+
   const navigate = useNavigate();
   const location = useLocation();
   const { unreadCount } = useNotifications();
 
-  const tabs = useMemo(
+const tabs = useMemo(
     () => [
+      {
+        key: "__menu__",
+        title: "",
+        icon: <span className="nav-icon nav-icon-mobile"><MenuFoldOutlined style={{ fontSize: 20 }} /></span>,
+      },
       { key: "/dashboard", title: "Dashboard", icon: <span className="nav-icon nav-icon-mobile"><DashboardIcon /></span> },
       ...(canViewInventory ? [{ key: "/inventory", title: "Inventory", icon: <span className="nav-icon nav-icon-mobile"><InventoryIcon /></span> }] : []),
       {
@@ -41,6 +48,10 @@ export default function MobileBottomNav({ canViewInventory }: Props) {
       <TabBar
         activeKey={activeKey}
         onChange={(key: string) => {
+          if (key === "__menu__") {
+            onToggleDrawer?.();
+            return;
+          }
           if (key === "__notifications__") {
             // Try to open the header notification bell popover
             const bellBtn = document.querySelector<HTMLButtonElement>(".app-header-tool--notifications button");
@@ -53,6 +64,7 @@ export default function MobileBottomNav({ canViewInventory }: Props) {
           }
           navigate(key);
         }}
+
         safeArea
       >
         {tabs.map((item) => (

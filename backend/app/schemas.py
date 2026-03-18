@@ -171,6 +171,10 @@ class JobUpdate(BaseModel):
 class JobRead(JobBase):
     id: int
     created_by_user_id: Optional[int] = None
+    assigned_to_user_id: Optional[int] = None
+    approved_by_user_id: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    approval_notes: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

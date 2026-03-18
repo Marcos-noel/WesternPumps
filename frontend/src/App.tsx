@@ -12,6 +12,7 @@ import { allowedLandingPages, canAccessPage, type AppPageKey } from "./utils/acc
 import BrandedLoader from "./components/BrandedLoader";
 import DesktopLayout from "./layouts/DesktopLayout";
 import MobileLayout from "./layouts/MobileLayout";
+import MobileSidebar from "./components/MobileSidebar";
 
 const NavBar = lazy(() => import("./components/NavBar"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
@@ -133,7 +134,8 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const screens = Grid.useBreakpoint();
-  const [collapsed, setCollapsed] = useState(false);
+const [collapsed, setCollapsed] = useState(false);
+const [drawerOpen, setDrawerOpen] = useState(false);
   const [brandingLogoUrl, setBrandingLogoUrl] = useState("");
   const [logoLoadFailed, setLogoLoadFailed] = useState(false);
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
@@ -536,10 +538,12 @@ export default function App() {
           <BrandedLoader title="Welcome to Western Pumps" subtitle="Loading your dashboard..." />
         </div>
       ) : null}
-      {showShell && isMobileViewport ? (
-        <MobileLayout header={headerNode} canViewInventory={canAccessPage(role, "inventory")}>
+{showShell && isMobileViewport ? (
+        <MobileLayout header={headerNode} canViewInventory={canAccessPage(role, "inventory")} drawerOpen={drawerOpen} onToggleDrawer={() => setDrawerOpen(o => !o)}>
+          <MobileSidebar open={drawerOpen} onClose={() => setDrawerOpen(false)} />
           {routesNode}
         </MobileLayout>
+
       ) : showShell ? (
         <DesktopLayout sidebar={sidebarNode} header={headerNode}>
           {routesNode}

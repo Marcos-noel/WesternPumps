@@ -140,7 +140,7 @@ class Job(Base, TimestampMixin):
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(50), default="open")  # open|in_progress|completed|canceled
+    status: Mapped[str] = mapped_column(String(50), default="open")  # open|in_progress|pending_approval|completed|canceled
     priority: Mapped[str] = mapped_column(String(50), default="medium")  # low|medium|high
     site_location_label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     site_latitude: Mapped[Optional[float]] = mapped_column(Numeric(9, 6), nullable=True)
@@ -148,6 +148,11 @@ class Job(Base, TimestampMixin):
 
     created_by_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     assigned_to_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+    # Approval workflow fields
+    approved_by_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    approval_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     customer: Mapped["Customer"] = relationship(back_populates="jobs")
     created_by: Mapped[Optional["User"]] = relationship(
@@ -159,6 +164,9 @@ class Job(Base, TimestampMixin):
         foreign_keys=[assigned_to_user_id],
     )
     job_costing: Mapped[Optional["JobCosting"]] = relationship(back_populates="job")
+    approved_by: Mapped[Optional["User"]] = relationship(
+        foreign_keys=[approved_by_user_id],
+    )
 
 
 class Part(Base, TimestampMixin):
