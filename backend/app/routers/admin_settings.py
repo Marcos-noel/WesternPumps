@@ -7,11 +7,13 @@ from app.audit import log_audit
 from app.db import get_db
 from app.deps import get_current_user, require_roles
 from app.models import User
-from app.notifications import send_smtp_test_email
+from app.notifications import send_smtp_test_email, _send_whatsapp_twilio
 from app.schemas import (
     AppSettingsRead,
     AppSettingsTestEmailRequest,
     AppSettingsTestEmailResponse,
+    AppSettingsTestWhatsAppRequest,
+    AppSettingsTestWhatsAppResponse,
     AppSettingsUpdate,
     BrandingSettingsRead,
 )
@@ -251,3 +253,27 @@ def test_email_settings(
     )
     db.commit()
     return AppSettingsTestEmailResponse(ok=ok, detail=detail, recipient=recipient)
+
+
+@router.post("/test-whatsapp", response_model=AppSettingsTestWhatsAppResponse, dependencies=[Depends(require_roles("admin", "manager", "finance"))])
+def test_whatsapp_settings(
+    payload: AppSettingsTestWhatsAppRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AppSettingsTestWhatsAppResponse:
+    # Use provided recipient or default to user's phone if available
+    recipient = (str(payload.recipient).strip() if payload.recipient else (current_user.phone or "").strip())
+    if not recipient:
+        return AppSettingsTestWhatsAppResponse(ok=False, detail="missing_recipient", recipient="")
+
+    body = "This is a test WhatsApp message from WesternPumps.\n\nIf you received this, WhatsApp settings are working."
+    ok, detail = _send_whatsapp_twilio(recipients=[recipient], body=body)
+    log_audit(
+        db,
+        current_user,
+        action="test_whatsapp",
+        entity_type="app_settings",
+        detail={"recipient": recipient, "ok": ok, "detail": detail},
+    )
+    db.commit()
+    return AppSettingsTestWhatsAppResponse(ok=ok, detail=detail, recipient=recipient)

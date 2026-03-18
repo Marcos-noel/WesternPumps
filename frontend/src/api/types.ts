@@ -50,6 +50,10 @@ export type Job = {
   created_by_user_id?: number | null;
   created_at: string;
   updated_at: string;
+  // Approval workflow fields
+  approved_by_user_id?: number | null;
+  approved_at?: string | null;
+  approval_notes?: string | null;
 };
 
 export type Item = {

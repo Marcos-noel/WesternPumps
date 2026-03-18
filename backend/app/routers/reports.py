@@ -110,7 +110,7 @@ def _format_export(
     raise HTTPException(status_code=400, detail="Invalid format")
 
 
-@router.get("/stock-level", dependencies=[Depends(require_roles("manager", "finance"))])
+@router.get("/stock-level", dependencies=[Depends(require_roles("manager", "finance", "store_manager"))])
 def stock_level_report(
     db: Session = Depends(get_db),
     format: str = Query("excel", pattern="^(excel|pdf|docx|csv)$"),
@@ -160,7 +160,7 @@ def stock_level_report(
     )
 
 
-@router.get("/item-traceability", dependencies=[Depends(require_roles("manager", "finance"))])
+@router.get("/item-traceability", dependencies=[Depends(require_roles("manager", "finance", "store_manager"))])
 def item_traceability_report(
     db: Session = Depends(get_db),
     format: str = Query("excel", pattern="^(excel|pdf|docx|csv)$"),
@@ -259,7 +259,7 @@ def item_traceability_report(
     )
 
 
-@router.get("/stock-movement", dependencies=[Depends(require_roles("manager", "finance"))])
+@router.get("/stock-movement", dependencies=[Depends(require_roles("manager", "finance", "store_manager"))])
 def stock_movement_report(
     db: Session = Depends(get_db),
     format: str = Query("excel", pattern="^(excel|pdf|docx|csv)$"),
@@ -308,7 +308,7 @@ def stock_movement_report(
     )
 
 
-@router.get("/audit-trail", dependencies=[Depends(require_roles("manager", "finance"))])
+@router.get("/audit-trail", dependencies=[Depends(require_roles("manager", "finance", "store_manager"))])
 def audit_trail_report(
     db: Session = Depends(get_db),
     format: str = Query("excel", pattern="^(excel|pdf|docx|csv)$"),

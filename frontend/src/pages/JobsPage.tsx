@@ -1,19 +1,21 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { App as AntdApp, Button, Card, Drawer, Dropdown, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from "antd";
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { App as AntdApp, Button, Card, Drawer, Dropdown, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, Upload, message } from "antd";
 import type { MenuProps } from "antd";
-import { MoreOutlined } from "@ant-design/icons";
+import { MoreOutlined, CameraOutlined, UploadOutlined, CheckOutlined, CloseOutlined } from "@ant-design/icons";
 import { listCustomers } from "../api/customers";
-import { createJob, listJobs, updateJob } from "../api/jobs";
+import { createJob, listJobs, updateJob, uploadJobPhoto, listJobPhotos, getJobPhotoUrl, submitJobForApproval, approveJob, rejectJob, type JobPhoto } from "../api/jobs";
 import { listAssignableUsers, listUsers } from "../api/users";
 import type { Customer, Job, User } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
 import { useAuth } from "../state/AuthContext";
 import { formatDateTime } from "../utils/datetime";
 import { useNavigate } from "react-router-dom";
+import JobPhotoUpload from "../components/JobPhotoUpload";
 
 const statusOptions = [
   { value: "open", label: "Open" },
   { value: "in_progress", label: "In progress" },
+  { value: "pending_approval", label: "Pending Approval" },
   { value: "completed", label: "Completed" },
   { value: "canceled", label: "Canceled" }
 ];
@@ -55,6 +57,13 @@ export default function JobsPage() {
 
   const [detailJob, setDetailJob] = useState<Job | null>(null);
   const [editing, setEditing] = useState<Job | null>(null);
+  const [photos, setPhotos] = useState<JobPhoto[]>([]);
+  const [loadingPhotos, setLoadingPhotos] = useState(false);
+  const [showPhotoUpload, setShowPhotoUpload] = useState(false);
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [approvalNotes, setApprovalNotes] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
 
   const [editCustomerId, setEditCustomerId] = useState<number | "">("");
   const [editTitle, setEditTitle] = useState("");
@@ -89,6 +98,27 @@ export default function JobsPage() {
       setLoading(false);
     }
   }
+
+  async function loadPhotos(jobId: number) {
+    setLoadingPhotos(true);
+    try {
+      const jobPhotos = await listJobPhotos(jobId);
+      setPhotos(jobPhotos);
+    } catch (err: any) {
+      console.error("Failed to load photos:", err);
+    } finally {
+      setLoadingPhotos(false);
+    }
+  }
+
+  // Load photos when detailJob changes
+  useEffect(() => {
+    if (detailJob) {
+      loadPhotos(detailJob.id);
+    } else {
+      setPhotos([]);
+    }
+  }, [detailJob?.id]);
 
   useEffect(() => {
     refresh();
@@ -189,6 +219,73 @@ export default function JobsPage() {
       setSaving(false);
     }
   }
+
+  async function handleUploadPhoto(file: File, photoType: string, description: string) {
+    if (!detailJob) return;
+    try {
+      await uploadJobPhoto(detailJob.id, file, photoType, description);
+      message.success("Photo uploaded");
+      await loadPhotos(detailJob.id);
+    } catch (err: any) {
+      message.error(getApiErrorMessage(err, "Failed to upload photo"));
+    }
+  }
+
+  async function handleSubmitForApproval() {
+    if (!detailJob) return;
+    setSaving(true);
+    try {
+      await submitJobForApproval(detailJob.id);
+      message.success("Job submitted for approval");
+      setDetailJob(null);
+      await refresh();
+    } catch (err: any) {
+      message.error(getApiErrorMessage(err, "Failed to submit for approval"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleApproveJob() {
+    if (!detailJob) return;
+    setSaving(true);
+    try {
+      await approveJob(detailJob.id, approvalNotes);
+      message.success("Job approved");
+      setShowApprovalModal(false);
+      setApprovalNotes("");
+      setDetailJob(null);
+      await refresh();
+    } catch (err: any) {
+      message.error(getApiErrorMessage(err, "Failed to approve job"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRejectJob() {
+    if (!detailJob) return;
+    if (!rejectReason.trim()) {
+      message.error("Please provide a reason for rejection");
+      return;
+    }
+    setSaving(true);
+    try {
+      await rejectJob(detailJob.id, rejectReason);
+      message.success("Job rejected");
+      setShowRejectModal(false);
+      setRejectReason("");
+      setDetailJob(null);
+      await refresh();
+    } catch (err: any) {
+      message.error(getApiErrorMessage(err, "Failed to reject job"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const isTechnicianOrLead = role === "technician" || role === "lead_technician";
+  const canApprove = isAdmin || role === "manager" || role === "lead_technician";
 
   const customerNameById = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
   const userNameById = useMemo(
@@ -515,10 +612,31 @@ export default function JobsPage() {
         title="Job details"
         open={!!detailJob}
         onClose={() => setDetailJob(null)}
-        width={520}
+        width={640}
         extra={
           detailJob ? (
             <Space>
+              {/* Approval Workflow Buttons */}
+              {isTechnicianOrLead && detailJob.status === "in_progress" && (
+                <Button type="primary" onClick={() => setShowPhotoUpload(true)}>
+                  <CameraOutlined /> Add Photos
+                </Button>
+              )}
+              {isTechnicianOrLead && detailJob.status === "in_progress" && (
+                <Button onClick={handleSubmitForApproval} disabled={saving}>
+                  Submit for Approval
+                </Button>
+              )}
+              {canApprove && detailJob.status === "pending_approval" && (
+                <>
+                  <Button type="primary" onClick={() => setShowApprovalModal(true)} disabled={saving}>
+                    <CheckOutlined /> Approve
+                  </Button>
+                  <Button danger onClick={() => setShowRejectModal(true)} disabled={saving}>
+                    <CloseOutlined /> Reject
+                  </Button>
+                </>
+              )}
               {canManageJobs ? <Button onClick={() => startEdit(detailJob)}>Edit</Button> : null}
               <Button
                 type="primary"
@@ -546,7 +664,11 @@ export default function JobsPage() {
             </div>
             <div>
               <Typography.Text type="secondary">Status</Typography.Text>
-              <div>{statusLabel(detailJob.status)}</div>
+              <div>
+                <Tag color={detailJob.status === "pending_approval" ? "orange" : detailJob.status === "completed" ? "green" : detailJob.status === "in_progress" ? "blue" : "default"}>
+                  {statusLabel(detailJob.status)}
+                </Tag>
+              </div>
             </div>
             <div>
               <Typography.Text type="secondary">Priority</Typography.Text>
@@ -573,6 +695,69 @@ export default function JobsPage() {
               <Typography.Text type="secondary">Description</Typography.Text>
               <div>{detailJob.description || "No description"}</div>
             </div>
+
+            {/* Photo Gallery Section */}
+            <div>
+              <Typography.Text type="secondary">Photos ({photos.length})</Typography.Text>
+              <div style={{ marginTop: 8 }}>
+                {loadingPhotos ? (
+                  <Typography.Text type="secondary">Loading photos...</Typography.Text>
+                ) : photos.length > 0 ? (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {photos.map((photo) => (
+                      <a
+                        key={photo.id}
+                        href={getJobPhotoUrl(detailJob.id, photo.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "block",
+                          width: 100,
+                          height: 100,
+                          borderRadius: 8,
+                          overflow: "hidden",
+                          border: "1px solid #d9d9d9",
+                        }}
+                      >
+                        <img
+                          src={getJobPhotoUrl(detailJob.id, photo.id)}
+                          alt={photo.file_name}
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        />
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <Typography.Text type="secondary">No photos yet</Typography.Text>
+                )}
+                {(isTechnicianOrLead || canManageJobs) && (
+                  <Button
+                    type="dashed"
+                    icon={<UploadOutlined />}
+                    onClick={() => setShowPhotoUpload(true)}
+                    style={{ marginTop: 8, width: "100%" }}
+                  >
+                    Upload Photo
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Approval Info */}
+            {detailJob.approved_by_user_id && (
+              <div>
+                <Typography.Text type="secondary">Approved By</Typography.Text>
+                <div>
+                  {detailJob.approved_by_user_id} on {detailJob.approved_at ? new Date(detailJob.approved_at).toLocaleString() : "N/A"}
+                </div>
+                {detailJob.approval_notes && (
+                  <>
+                    <Typography.Text type="secondary">Approval Notes</Typography.Text>
+                    <div>{detailJob.approval_notes}</div>
+                  </>
+                )}
+              </div>
+            )}
           </Space>
         ) : null}
       </Drawer>
@@ -649,6 +834,62 @@ export default function JobsPage() {
             </Form.Item>
           ) : null}
         </Form>
+      </Modal>
+
+      {/* Photo Upload Modal */}
+      <Modal
+        title="Upload Photo"
+        open={showPhotoUpload}
+        onCancel={() => setShowPhotoUpload(false)}
+        footer={null}
+      >
+        <JobPhotoUpload jobId={detailJob?.id} onUploadComplete={() => {
+          setShowPhotoUpload(false);
+          if (detailJob) loadPhotos(detailJob.id);
+        }} />
+      </Modal>
+
+      {/* Approval Modal */}
+      <Modal
+        title="Approve Job"
+        open={showApprovalModal}
+        onCancel={() => {
+          setShowApprovalModal(false);
+          setApprovalNotes("");
+        }}
+        onOk={handleApproveJob}
+        okText="Approve"
+        confirmLoading={saving}
+      >
+        <p>Are you sure you want to approve this job?</p>
+        <Input.TextArea
+          value={approvalNotes}
+          onChange={(e) => setApprovalNotes(e.target.value)}
+          placeholder="Optional notes..."
+          rows={3}
+        />
+      </Modal>
+
+      {/* Rejection Modal */}
+      <Modal
+        title="Reject Job"
+        open={showRejectModal}
+        onCancel={() => {
+          setShowRejectModal(false);
+          setRejectReason("");
+        }}
+        onOk={handleRejectJob}
+        okText="Reject"
+        okButtonProps={{ danger: true }}
+        confirmLoading={saving}
+      >
+        <p>Please provide a reason for rejecting this job:</p>
+        <Input.TextArea
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          placeholder="Reason for rejection..."
+          rows={3}
+        />
       </Modal>
     </div>
   );

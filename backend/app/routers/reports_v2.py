@@ -5,7 +5,7 @@ from datetime import datetime, date, timedelta
 from typing import Optional, Any
 import json
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
@@ -673,4 +673,211 @@ def get_reorder_alerts_summary(
                 "suggested_order_qty": part.reorder_quantity or (part.min_quantity * 2 - part.quantity_on_hand),
             })
 
+    return results
+
+
+# ============================================
+# STORE MANAGER REPORTS
+# ============================================
+
+
+class StockUsageResponse(BaseModel):
+    part_id: int
+    part_name: str
+    sku: str
+    category: Optional[str]
+    total_used: int
+    total_value: float
+    usage_count: int
+
+
+@router.get("/store-manager/stock-usage", response_model=list[StockUsageResponse])
+def get_stock_usage_report(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get stock usage report - for Store Manager role"""
+    if current_user.role not in ["store_manager", "manager", "admin", "finance"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Default to last 30 days
+    if not end_date:
+        end_date = date.today()
+    if not start_date:
+        start_date = (datetime.combine(end_date, datetime.min.time()) - timedelta(days=30)).date()
+    
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+    
+    # Get all stock transactions that are OUT (issued/used)
+    transactions = db.query(StockTransaction).filter(
+        and_(
+            StockTransaction.transaction_type == "OUT",
+            StockTransaction.created_at >= start_dt,
+            StockTransaction.created_at <= end_dt
+        )
+    ).all()
+    
+    # Aggregate by part
+    usage_data = {}
+    for txn in transactions:
+        if txn.part_id not in usage_data:
+            usage_data[txn.part_id] = {
+                "part_id": txn.part_id,
+                "part_name": txn.part.name if txn.part else "Unknown",
+                "sku": txn.part.sku if txn.part else "Unknown",
+                "category": txn.part.category.name if txn.part and txn.part.category else "Uncategorized",
+                "total_used": 0,
+                "total_value": 0,
+                "usage_count": 0
+            }
+        qty = abs(txn.quantity_change or 0)
+        usage_data[txn.part_id]["total_used"] += qty
+        usage_data[txn.part_id]["total_value"] += qty * (txn.part.unit_price or 0) if txn.part else 0
+        usage_data[txn.part_id]["usage_count"] += 1
+    
+    results = list(usage_data.values())
+    results.sort(key=lambda x: x["total_used"], reverse=True)
+    return results[:limit]
+
+
+class FrequentlyUsedItemResponse(BaseModel):
+    part_id: int
+    part_name: str
+    sku: str
+    category: str
+    usage_count: int
+    total_quantity: int
+    average_per_use: float
+
+
+@router.get("/store-manager/frequently-used", response_model=list[FrequentlyUsedItemResponse])
+def get_frequently_used_items(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get most frequently used stock items - for Store Manager role"""
+    if current_user.role not in ["store_manager", "manager", "admin", "finance"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if not end_date:
+        end_date = date.today()
+    if not start_date:
+        start_date = (datetime.combine(end_date, datetime.min.time()) - timedelta(days=90)).date()
+    
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+    
+    # Get transaction counts by part
+    from sqlalchemy import func
+    
+    usage_stats = db.query(
+        StockTransaction.part_id,
+        func.count(StockTransaction.id).label("usage_count"),
+        func.sum(func.abs(StockTransaction.quantity_change)).label("total_quantity")
+    ).filter(
+        and_(
+            StockTransaction.transaction_type == "OUT",
+            StockTransaction.created_at >= start_dt,
+            StockTransaction.created_at <= end_dt
+        )
+    ).group_by(StockTransaction.part_id).all()
+    
+    results = []
+    for stat in usage_stats:
+        part = db.get(Part, stat.part_id)
+        if part:
+            results.append({
+                "part_id": stat.part_id,
+                "part_name": part.name,
+                "sku": part.sku,
+                "category": part.category.name if part.category else "Uncategorized",
+                "usage_count": stat.usage_count,
+                "total_quantity": int(stat.total_quantity or 0),
+                "average_per_use": round(float(stat.total_quantity or 0) / stat.usage_count, 2) if stat.usage_count else 0
+            })
+    
+    results.sort(key=lambda x: x["usage_count"], reverse=True)
+    return results[:limit]
+
+
+class StockUsageByTechnicianResponse(BaseModel):
+    technician_id: int
+    technician_name: str
+    total_transactions: int
+    total_parts_used: int
+    total_value: float
+    parts_list: list[dict]
+
+
+@router.get("/store-manager/usage-by-technician", response_model=list[StockUsageByTechnicianResponse])
+def get_stock_usage_by_technician(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get stock usage segmented by technician - for Store Manager role"""
+    if current_user.role not in ["store_manager", "manager", "admin", "finance"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if not end_date:
+        end_date = date.today()
+    if not start_date:
+        start_date = (datetime.combine(end_date, datetime.min.time()) - timedelta(days=30)).date()
+    
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+    
+    # Get technicians
+    technicians = db.query(User).filter(
+        User.role.in_(["technician", "lead_technician"])
+    ).all()
+    
+    results = []
+    for tech in technicians:
+        # Get stock transactions by this technician
+        txns = db.query(StockTransaction).filter(
+            and_(
+                StockTransaction.performed_by_user_id == tech.id,
+                StockTransaction.transaction_type == "OUT",
+                StockTransaction.created_at >= start_dt,
+                StockTransaction.created_at <= end_dt
+            )
+        ).all()
+        
+        total_parts = sum(abs(t.quantity_change or 0) for t in txns)
+        total_value = sum(abs(t.quantity_change or 0) * (t.part.unit_price or 0) for t in txns if t.part)
+        
+        # Build parts list
+        parts_dict = {}
+        for t in txns:
+            if t.part_id not in parts_dict:
+                parts_dict[t.part_id] = {
+                    "part_id": t.part_id,
+                    "part_name": t.part.name if t.part else "Unknown",
+                    "sku": t.part.sku if t.part else "Unknown",
+                    "quantity": 0,
+                    "value": 0
+                }
+            qty = abs(t.quantity_change or 0)
+            parts_dict[t.part_id]["quantity"] += qty
+            parts_dict[t.part_id]["value"] += qty * (t.part.unit_price or 0) if t.part else 0
+        
+        results.append({
+            "technician_id": tech.id,
+            "technician_name": tech.full_name or tech.email,
+            "total_transactions": len(txns),
+            "total_parts_used": total_parts,
+            "total_value": round(total_value, 2),
+            "parts_list": list(parts_dict.values())
+        })
+    
+    results.sort(key=lambda x: x["total_value"], reverse=True)
     return results

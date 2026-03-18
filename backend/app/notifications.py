@@ -125,6 +125,33 @@ def _send_sms_twilio(*, recipients: list[str], body: str) -> tuple[bool, str]:
         return False, f"sms_error:{exc}"
 
 
+def _send_whatsapp_twilio(*, recipients: list[str], body: str) -> tuple[bool, str]:
+    """Send WhatsApp message via Twilio WhatsApp API."""
+    if not recipients:
+        return False, "no_whatsapp_recipients"
+    if not settings.whatsapp_enabled:
+        return False, "whatsapp_disabled"
+    if not settings.whatsapp_account_sid or not settings.whatsapp_auth_token or not settings.whatsapp_from_number:
+        return False, "missing_whatsapp_config"
+
+    auth = base64.b64encode(f"{settings.whatsapp_account_sid}:{settings.whatsapp_auth_token}".encode("utf-8")).decode("ascii")
+    endpoint = f"https://api.twilio.com/2010-04-01/Accounts/{settings.whatsapp_account_sid}/Messages.json"
+    try:
+        for number in recipients:
+            # WhatsApp numbers must be in format: whatsapp:+1234567890
+            clean_number = number.strip().replace("+", "").replace(" ", "").replace("-", "")
+            whatsapp_to = f"whatsapp:+{clean_number}"
+            payload = urlencode({"To": whatsapp_to, "From": settings.whatsapp_from_number, "Body": body}).encode("utf-8")
+            req = Request(endpoint, data=payload, method="POST")
+            req.add_header("Authorization", f"Basic {auth}")
+            req.add_header("Content-Type", "application/x-www-form-urlencoded")
+            with urlopen(req, timeout=20) as _:
+                pass
+        return True, "whatsapp_sent"
+    except Exception as exc:  # pragma: no cover
+        return False, f"whatsapp_error:{exc}"
+
+
 def _get_app_setting(db: Session, key: str) -> str:
     row = db.scalar(select(AppSetting).where(AppSetting.key == key).limit(1))
     return (row.value if row else "") or ""
@@ -263,6 +290,13 @@ def dispatch_alert(
             channels.append({"channel": "sms", "ok": False, "detail": "unsupported_sms_provider"})
     else:
         channels.append({"channel": "sms", "ok": False, "detail": "sms_disabled"})
+
+    # WhatsApp notification (via Twilio)
+    if settings.whatsapp_enabled:
+        ok, detail = _send_whatsapp_twilio(recipients=all_phones, body=body)
+        channels.append({"channel": "whatsapp", "ok": ok, "detail": detail})
+    else:
+        channels.append({"channel": "whatsapp", "ok": False, "detail": "whatsapp_disabled"})
 
     integration_targets = [
         ("finance_webhook", "integration_finance_enabled", "integration_finance_webhook", "integration_finance_webhook_secret"),

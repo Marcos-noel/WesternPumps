@@ -30,6 +30,8 @@ const CategoriesPage = lazy(() => import("./pages/CategoriesPage"));
 const LocationsPage = lazy(() => import("./pages/LocationsPage"));
 const RequestsPage = lazy(() => import("./pages/RequestsPage"));
 const ReportsPage = lazy(() => import("./pages/ReportsPage"));
+const StoreManagerReportsPage = lazy(() => import("./pages/StoreManagerReportsPage"));
+const VerifyItemPage = lazy(() => import("./pages/VerifyItemPage"));
 const AdminSettingsPage = lazy(() => import("./pages/AdminSettingsPage"));
 const AuditPage = lazy(() => import("./pages/AuditPage"));
 const InventorySciencePage = lazy(() => import("./pages/InventorySciencePage"));
@@ -325,6 +327,7 @@ const [drawerOpen, setDrawerOpen] = useState(false);
         <Routes location={location}>
           <Route path="/" element={<Navigate to={defaultHome} replace />} />
           <Route path="/login" element={disableAuth ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
+          <Route path="/verify/:partId" element={<VerifyItemPage />} />
           <Route
             path="/assistant"
             element={
@@ -458,6 +461,14 @@ const [drawerOpen, setDrawerOpen] = useState(false);
             element={
               <AccessOnly page="reports_v2">
                 <ReportsV2Page />
+              </AccessOnly>
+            }
+          />
+          <Route
+            path="/store-manager-reports"
+            element={
+              <AccessOnly page="store_manager_reports">
+                <StoreManagerReportsPage />
               </AccessOnly>
             }
           />

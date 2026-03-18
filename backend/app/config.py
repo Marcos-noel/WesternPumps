@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
     twilio_from_number: str | None = None
+    # WhatsApp Configuration (via Twilio)
+    whatsapp_enabled: bool = False
+    whatsapp_account_sid: str | None = None
+    whatsapp_auth_token: str | None = None
+    whatsapp_from_number: str | None = None
     seed_admin_email: str | None = None
     seed_admin_password: str | None = None
     seed_admin_full_name: str | None = None

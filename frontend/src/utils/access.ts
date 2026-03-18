@@ -16,6 +16,7 @@ export type AppPageKey =
   | "approvals"
   | "reports"
   | "reports_v2"
+  | "store_manager_reports"
   | "users"
   | "admin_settings"
   | "guide"
@@ -42,6 +43,7 @@ const ACCESS_RULES: Record<AppPageKey, UserRole[]> = {
   approvals: ["admin", "manager", "approver"],
   reports: ["admin", "manager", "finance"],
   reports_v2: ["admin", "manager", "finance"],
+  store_manager_reports: ["admin", "manager", "store_manager", "finance"],
   users: ["admin"],
   admin_settings: ["admin", "manager", "finance"],
   guide: ["admin", "manager", "store_manager", "approver", "lead_technician", "technician", "finance", "staff", "rider", "driver"],

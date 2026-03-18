@@ -836,6 +836,16 @@ class AppSettingsTestEmailResponse(BaseModel):
     recipient: str
 
 
+class AppSettingsTestWhatsAppRequest(BaseModel):
+    recipient: Optional[str] = None  # Phone number e.g. +254712345678
+
+
+class AppSettingsTestWhatsAppResponse(BaseModel):
+    ok: bool
+    detail: str
+    recipient: str
+
+
 class BrandingSettingsRead(BaseModel):
     branding_logo_url: str = ""
 

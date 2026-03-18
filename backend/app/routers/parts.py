@@ -963,28 +963,42 @@ def verify_part(
     part = db.get(Part, part_id)
     if not part:
         return {
-            "verified": False,
+            "is_valid": False,
             "message": "Item not found in Western Pumps inventory",
             "part_id": part_id,
+            "sku": "",
+            "name": "",
+            "is_active": False,
+            "category": None,
+            "location": None,
+            "quantity_on_hand": 0,
+            "unit_price": None,
         }
 
     # Verify SKU matches
     if sku and part.sku != sku:
         return {
-            "verified": False,
+            "is_valid": False,
             "message": "SKU mismatch - this may be a counterfeit item",
             "part_id": part_id,
             "sku": part.sku,
+            "name": part.name,
+            "is_active": part.is_active,
+            "category": part.category.name if part.category else None,
+            "location": part.location.name if part.location else None,
+            "quantity_on_hand": part.quantity_on_hand,
+            "unit_price": part.unit_price,
         }
 
     return {
-        "verified": True,
+        "is_valid": True,
         "message": "Genuine Western Pumps item",
-        "part": {
-            "id": part.id,
-            "sku": part.sku,
-            "name": part.name,
-            "is_active": part.is_active,
-            "quantity_on_hand": part.quantity_on_hand,
-        },
+        "part_id": part.id,
+        "sku": part.sku,
+        "name": part.name,
+        "is_active": part.is_active,
+        "category": part.category.name if part.category else None,
+        "location": part.location.name if part.location else None,
+        "quantity_on_hand": part.quantity_on_hand,
+        "unit_price": part.unit_price,
     }

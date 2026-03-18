@@ -58,6 +58,77 @@ export interface InventoryValuation {
   location: string;
 }
 
+// Store Manager Reports - Stock Usage
+export interface StockUsage {
+  part_id: number;
+  part_name: string;
+  sku: string;
+  category: string;
+  total_used: number;
+  total_value: number;
+  usage_count: number;
+}
+
+export interface FrequentlyUsedItem {
+  part_id: number;
+  part_name: string;
+  sku: string;
+  category: string;
+  usage_count: number;
+  total_quantity: number;
+  average_per_use: number;
+}
+
+export interface StockUsageByTechnician {
+  technician_id: number;
+  technician_name: string;
+  total_transactions: number;
+  total_parts_used: number;
+  total_value: number;
+  parts_list: {
+    part_id: number;
+    part_name: string;
+    sku: string;
+    quantity: number;
+    value: number;
+  }[];
+}
+
+// API Functions for Store Manager Reports
+export async function getStockUsageReport(
+  startDate?: string,
+  endDate?: string,
+  limit: number = 50
+): Promise<StockUsage[]> {
+  const params = new URLSearchParams();
+  if (startDate) params.append("start_date", startDate);
+  if (endDate) params.append("end_date", endDate);
+  params.append("limit", limit.toString());
+  return (await api.get<StockUsage[]>(`/api/reports/store-manager/stock-usage?${params}`)).data;
+}
+
+export async function getFrequentlyUsedItems(
+  startDate?: string,
+  endDate?: string,
+  limit: number = 20
+): Promise<FrequentlyUsedItem[]> {
+  const params = new URLSearchParams();
+  if (startDate) params.append("start_date", startDate);
+  if (endDate) params.append("end_date", endDate);
+  params.append("limit", limit.toString());
+  return (await api.get<FrequentlyUsedItem[]>(`/api/reports/store-manager/frequently-used?${params}`)).data;
+}
+
+export async function getStockUsageByTechnician(
+  startDate?: string,
+  endDate?: string
+): Promise<StockUsageByTechnician[]> {
+  const params = new URLSearchParams();
+  if (startDate) params.append("start_date", startDate);
+  if (endDate) params.append("end_date", endDate);
+  return (await api.get<StockUsageByTechnician[]>(`/api/reports/store-manager/usage-by-technician?${params}`)).data;
+}
+
 export interface ValuationSummary {
   total_inventory_value: number;
   total_parts: number;
