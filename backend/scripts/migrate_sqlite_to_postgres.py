@@ -20,7 +20,7 @@ POSTGRES_URL = os.environ.get(
 "postgresql://marcos_noel23:xwszqrbJEzg3EMfZ3jp3xiknFzJ5Pidi@dpg-d6spqstm5p6s73b01030-a.oregon-postgres.render.com/westernpumps?sslmode=require"
 )
 
-SQLITE_DB = "../devdata/westernpumps.db"
+SQLITE_DB = "devdata/westernpumps.db"
 
 
 def get_sqlite_connection():
