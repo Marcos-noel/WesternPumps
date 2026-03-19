@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { App as AntdApp, Button, Card, Drawer, Dropdown, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, Upload, message } from "antd";
+import { App as AntdApp, Button, Card, Drawer, Dropdown, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, Upload } from "antd";
 import type { MenuProps } from "antd";
 import { MoreOutlined, CameraOutlined, UploadOutlined, CheckOutlined, CloseOutlined } from "@ant-design/icons";
 import { listCustomers } from "../api/customers";

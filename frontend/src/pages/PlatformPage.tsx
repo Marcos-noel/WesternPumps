@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Card, Row, Col, Statistic, Button, Descriptions, Tag, Space, message, Spin } from "antd";
+import { App as AntdApp, Card, Row, Col, Statistic, Button, Descriptions, Tag, Space, Spin } from "antd";
 import { ReloadOutlined, CheckCircleOutlined, WarningOutlined, CloseCircleOutlined, SyncOutlined } from "@ant-design/icons";
 import { platformApi, type OutboxHealth, type ComplianceStatus, type SystemAbout } from "../api/platform";
 import { useAuth } from "../state/AuthContext";
 
 export default function PlatformPage() {
+  const { message } = AntdApp.useApp();
   const { user, isAdmin } = useAuth();
   const [loading, setLoading] = useState(false);
   const [outboxHealth, setOutboxHealth] = useState<OutboxHealth | null>(null);

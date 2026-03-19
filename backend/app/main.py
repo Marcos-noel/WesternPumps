@@ -11,7 +11,7 @@ import uuid
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware import Middleware
 from fastapi.middleware.cors import CORSMiddleware
@@ -219,7 +219,18 @@ def create_app() -> FastAPI:
             getattr(request.state, "request_id", ""),
             exc.errors(),
         )
-        return JSONResponse(status_code=422, content={"detail": exc.errors()})
+        return JSONResponse(
+            status_code=422,
+            content={"detail": exc.errors(), "request_id": getattr(request.state, "request_id", "")},
+        )
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            headers=getattr(exc, "headers", None),
+            content={"detail": exc.detail, "request_id": getattr(request.state, "request_id", "")},
+        )
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
@@ -232,7 +243,10 @@ def create_app() -> FastAPI:
             str(exc),
             traceback.format_exc(),
         )
-        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error", "request_id": getattr(request.state, "request_id", "")},
+        )
 
     @app.get("/")
     def root() -> dict[str, str]:

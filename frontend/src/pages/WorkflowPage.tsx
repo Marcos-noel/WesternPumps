@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Card, Button, Space, message, Descriptions, Spin, Modal, Form, Input, Select, Divider } from "antd";
+import { App as AntdApp, Card, Button, Space, Descriptions, Spin, Modal, Form, Input, Select, Divider } from "antd";
 import { ReloadOutlined, SaveOutlined, PlayCircleOutlined } from "@ant-design/icons";
 import { workflowApi, type WorkflowRules } from "../api/workflow";
 
 export default function WorkflowPage() {
+  const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [rules, setRules] = useState<WorkflowRules | null>(null);

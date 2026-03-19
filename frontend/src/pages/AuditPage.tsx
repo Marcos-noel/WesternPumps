@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, Table, Tag, Button, Space, DatePicker, Select, Modal, Descriptions, message } from "antd";
+import { App as AntdApp, Card, Table, Tag, Button, Space, DatePicker, Select, Modal, Descriptions } from "antd";
 import { ReloadOutlined, SecurityScanOutlined, EyeOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { auditApi, type AuditLogResponse, type HashVerificationResponse, type AuditFilters } from "../api/audit";
@@ -7,6 +7,7 @@ import { auditApi, type AuditLogResponse, type HashVerificationResponse, type Au
 const { RangePicker } = DatePicker;
 
 export default function AuditPage() {
+  const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<AuditLogResponse[]>([]);
   const [total, setTotal] = useState(0);

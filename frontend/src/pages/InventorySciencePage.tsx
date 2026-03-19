@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Card, Tabs, Table, Tag, Button, Space, message, Statistic, Row, Col } from "antd";
+import { App as AntdApp, Card, Tabs, Table, Tag, Button, Space, Statistic, Row, Col } from "antd";
 import { ReloadOutlined, BarChartOutlined, ExperimentOutlined, UnorderedListOutlined, SwapOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { inventoryScienceApi, type PickWave, type ReturnAuthorization, type InventoryMovementCost, type DemandForecast } from "../api/inventoryScience";
 import { formatKes } from "../utils/currency";
 
 export default function InventorySciencePage() {
+  const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("pick-waves");
   const [pickWaves, setPickWaves] = useState<PickWave[]>([]);

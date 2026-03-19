@@ -33,6 +33,10 @@ Thumbs.db
 # Logs
 *.log
 
+# Pytest runtime artifacts (may have restricted permissions under OneDrive)
+backend/pytest-cache-files-*/
+backend/.pytest_cache/
+
 # Backups & archives
 backups/
 audit_archives/

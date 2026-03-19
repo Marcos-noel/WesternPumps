@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Button, Input, Select, message, Upload } from "antd";
+import { App as AntdApp, Button, Input, Select, Upload } from "antd";
 import { UploadOutlined, CameraOutlined } from "@ant-design/icons";
 import { uploadJobPhoto } from "../api/jobs";
 
@@ -17,6 +17,7 @@ const photoTypeOptions = [
 ];
 
 export default function JobPhotoUpload({ jobId, onUploadComplete }: JobPhotoUploadProps) {
+  const { message } = AntdApp.useApp();
   const [file, setFile] = useState<File | null>(null);
   const [photoType, setPhotoType] = useState("GENERAL");
   const [description, setDescription] = useState("");

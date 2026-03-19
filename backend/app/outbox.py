@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.models import OutboxEvent
@@ -25,21 +25,23 @@ def enqueue_outbox_event(
         status="PENDING",
         attempts=0,
         max_attempts=8,
-        available_at=available_at or datetime.now(UTC),
+        # Make events claimable immediately. In some DBs (notably SQLite),
+        # server-side NOW()/CURRENT_TIMESTAMP truncates to seconds which can
+        # otherwise make a just-written microsecond timestamp appear "in the future".
+        available_at=available_at or (datetime.now(UTC) - timedelta(seconds=1)),
     )
     db.add(row)
     return row
 
 
 def claim_outbox_batch(db: Session, *, limit: int = 20) -> list[OutboxEvent]:
-    now = datetime.now(UTC)
     candidates = list(
         db.scalars(
             select(OutboxEvent)
             .where(
                 and_(
                     OutboxEvent.status.in_(["PENDING", "FAILED"]),
-                    OutboxEvent.available_at <= now,
+                    OutboxEvent.available_at <= func.now(),
                     OutboxEvent.attempts < OutboxEvent.max_attempts,
                 )
             )

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import get_current_user, require_roles
 from app.models import (
+    Category,
     User, Job, Customer, Part, StockTransaction,
     StockTransactionType,
     Invoice, InvoiceLine, Payment, JobCosting, JobSchedule,
@@ -37,6 +38,32 @@ def _csv_response(*, filename: str, headers: list[str], rows: list[list[str]]) -
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+MAX_REPORT_RANGE_DAYS = 366
+
+
+def _coerce_date_range(
+    *,
+    start_date: Optional[date],
+    end_date: Optional[date],
+    default_days: int,
+    max_days: int = MAX_REPORT_RANGE_DAYS,
+) -> tuple[date, date, datetime, datetime]:
+    if not end_date:
+        end_date = date.today()
+    if not start_date:
+        start_date = (datetime.combine(end_date, datetime.min.time()) - timedelta(days=default_days)).date()
+
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be <= end_date")
+
+    if (end_date - start_date).days > max_days:
+        raise HTTPException(status_code=400, detail=f"Date range too large (max {max_days} days)")
+
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+    return start_date, end_date, start_dt, end_dt
 
 
 # ============================================
@@ -712,51 +739,53 @@ class StockUsageResponse(BaseModel):
 def get_stock_usage_report(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
 ):
     """Get stock usage report - for Store Manager role"""
-    
-    # Default to last 30 days
-    if not end_date:
-        end_date = date.today()
-    if not start_date:
-        start_date = (datetime.combine(end_date, datetime.min.time()) - timedelta(days=30)).date()
-    
-    start_dt = datetime.combine(start_date, datetime.min.time())
-    end_dt = datetime.combine(end_date, datetime.max.time())
-    
-    # Get all stock transactions that are OUT (issued/used)
-    transactions = db.query(StockTransaction).filter(
-        and_(
+    _, _, start_dt, end_dt = _coerce_date_range(start_date=start_date, end_date=end_date, default_days=30, max_days=180)
+
+    qty_abs = func.abs(StockTransaction.quantity_delta)
+    unit_price = func.coalesce(Part.unit_price, 0)
+    category_name = func.coalesce(Category.name, "Uncategorized")
+
+    stmt = (
+        select(
+            Part.id.label("part_id"),
+            Part.name.label("part_name"),
+            Part.sku.label("sku"),
+            category_name.label("category"),
+            func.coalesce(func.sum(qty_abs), 0).label("total_used"),
+            func.count(StockTransaction.id).label("usage_count"),
+            func.coalesce(func.sum(qty_abs * unit_price), 0).label("total_value"),
+        )
+        .select_from(StockTransaction)
+        .join(Part, Part.id == StockTransaction.part_id)
+        .outerjoin(Category, Category.id == Part.category_id)
+        .where(
             StockTransaction.transaction_type == StockTransactionType.OUT,
             StockTransaction.created_at >= start_dt,
-            StockTransaction.created_at <= end_dt
+            StockTransaction.created_at <= end_dt,
         )
-    ).all()
-    
-    # Aggregate by part
-    usage_data = {}
-    for txn in transactions:
-        if txn.part_id not in usage_data:
-            usage_data[txn.part_id] = {
-                "part_id": txn.part_id,
-                "part_name": txn.part.name if txn.part else "Unknown",
-                "sku": txn.part.sku if txn.part else "Unknown",
-                "category": txn.part.category.name if txn.part and txn.part.category else "Uncategorized",
-                "total_used": 0,
-                "total_value": 0,
-                "usage_count": 0
-            }
-        qty = abs(int(txn.quantity_delta or 0))
-        usage_data[txn.part_id]["total_used"] += qty
-        usage_data[txn.part_id]["total_value"] += qty * (txn.part.unit_price or 0) if txn.part else 0
-        usage_data[txn.part_id]["usage_count"] += 1
-    
-    results = list(usage_data.values())
-    results.sort(key=lambda x: x["total_used"], reverse=True)
-    return results[:limit]
+        .group_by(Part.id, Part.name, Part.sku, Category.name)
+        .order_by(func.coalesce(func.sum(qty_abs), 0).desc())
+        .limit(limit)
+    )
+
+    rows = db.execute(stmt).all()
+    return [
+        {
+            "part_id": int(r.part_id),
+            "part_name": r.part_name,
+            "sku": r.sku,
+            "category": r.category,
+            "total_used": int(r.total_used or 0),
+            "usage_count": int(r.usage_count or 0),
+            "total_value": round(float(r.total_value or 0), 2),
+        }
+        for r in rows
+    ]
 
 
 class FrequentlyUsedItemResponse(BaseModel):
@@ -773,49 +802,55 @@ class FrequentlyUsedItemResponse(BaseModel):
 def get_frequently_used_items(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
 ):
     """Get most frequently used stock items - for Store Manager role"""
-    
-    if not end_date:
-        end_date = date.today()
-    if not start_date:
-        start_date = (datetime.combine(end_date, datetime.min.time()) - timedelta(days=90)).date()
-    
-    start_dt = datetime.combine(start_date, datetime.min.time())
-    end_dt = datetime.combine(end_date, datetime.max.time())
-    
-    # Get transaction counts by part
-    usage_stats = db.query(
-        StockTransaction.part_id,
-        func.count(StockTransaction.id).label("usage_count"),
-        func.sum(func.abs(StockTransaction.quantity_delta)).label("total_quantity")
-    ).filter(
-        and_(
+    _, _, start_dt, end_dt = _coerce_date_range(start_date=start_date, end_date=end_date, default_days=90, max_days=MAX_REPORT_RANGE_DAYS)
+
+    qty_abs = func.abs(StockTransaction.quantity_delta)
+    category_name = func.coalesce(Category.name, "Uncategorized")
+
+    stmt = (
+        select(
+            Part.id.label("part_id"),
+            Part.name.label("part_name"),
+            Part.sku.label("sku"),
+            category_name.label("category"),
+            func.count(StockTransaction.id).label("usage_count"),
+            func.coalesce(func.sum(qty_abs), 0).label("total_quantity"),
+        )
+        .select_from(StockTransaction)
+        .join(Part, Part.id == StockTransaction.part_id)
+        .outerjoin(Category, Category.id == Part.category_id)
+        .where(
             StockTransaction.transaction_type == StockTransactionType.OUT,
             StockTransaction.created_at >= start_dt,
-            StockTransaction.created_at <= end_dt
+            StockTransaction.created_at <= end_dt,
         )
-    ).group_by(StockTransaction.part_id).all()
-    
-    results = []
-    for stat in usage_stats:
-        part = db.get(Part, stat.part_id)
-        if part:
-            results.append({
-                "part_id": stat.part_id,
-                "part_name": part.name,
-                "sku": part.sku,
-                "category": part.category.name if part.category else "Uncategorized",
-                "usage_count": stat.usage_count,
-                "total_quantity": int(stat.total_quantity or 0),
-                "average_per_use": round(float(stat.total_quantity or 0) / stat.usage_count, 2) if stat.usage_count else 0
-            })
-    
-    results.sort(key=lambda x: x["usage_count"], reverse=True)
-    return results[:limit]
+        .group_by(Part.id, Part.name, Part.sku, Category.name)
+        .order_by(func.count(StockTransaction.id).desc())
+        .limit(limit)
+    )
+
+    rows = db.execute(stmt).all()
+    results: list[dict[str, Any]] = []
+    for r in rows:
+        usage_count = int(r.usage_count or 0)
+        total_qty = int(r.total_quantity or 0)
+        results.append(
+            {
+                "part_id": int(r.part_id),
+                "part_name": r.part_name,
+                "sku": r.sku,
+                "category": r.category,
+                "usage_count": usage_count,
+                "total_quantity": total_qty,
+                "average_per_use": round((float(total_qty) / usage_count), 2) if usage_count else 0,
+            }
+        )
+    return results
 
 
 class StockUsageByTechnicianResponse(BaseModel):
@@ -831,63 +866,74 @@ class StockUsageByTechnicianResponse(BaseModel):
 def get_stock_usage_by_technician(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
+    technician_limit: int = Query(100, ge=1, le=500),
+    parts_limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
 ):
     """Get stock usage segmented by technician - for Store Manager role"""
-    
-    if not end_date:
-        end_date = date.today()
-    if not start_date:
-        start_date = (datetime.combine(end_date, datetime.min.time()) - timedelta(days=30)).date()
-    
-    start_dt = datetime.combine(start_date, datetime.min.time())
-    end_dt = datetime.combine(end_date, datetime.max.time())
-    
-    # Get technicians
-    technicians = db.query(User).filter(
-        User.role.in_(["technician", "lead_technician"])
+    _, _, start_dt, end_dt = _coerce_date_range(start_date=start_date, end_date=end_date, default_days=30, max_days=180)
+
+    tech_rows = db.execute(
+        select(User.id, User.full_name, User.email)
+        .where(User.role.in_(["technician", "lead_technician"]))
+        .order_by(User.id.asc())
+        .limit(technician_limit)
     ).all()
-    
-    results = []
-    for tech in technicians:
-        # Get stock transactions by this technician
-        txns = db.query(StockTransaction).filter(
-            and_(
+
+    qty_abs = func.abs(StockTransaction.quantity_delta)
+    unit_price = func.coalesce(Part.unit_price, 0)
+
+    results: list[dict[str, Any]] = []
+    for tech in tech_rows:
+        parts_stmt = (
+            select(
+                Part.id.label("part_id"),
+                Part.name.label("part_name"),
+                Part.sku.label("sku"),
+                func.count(StockTransaction.id).label("tx_count"),
+                func.coalesce(func.sum(qty_abs), 0).label("quantity"),
+                func.coalesce(func.sum(qty_abs * unit_price), 0).label("value"),
+            )
+            .select_from(StockTransaction)
+            .join(Part, Part.id == StockTransaction.part_id)
+            .where(
                 StockTransaction.technician_id == tech.id,
                 StockTransaction.transaction_type == StockTransactionType.OUT,
                 StockTransaction.created_at >= start_dt,
-                StockTransaction.created_at <= end_dt
+                StockTransaction.created_at <= end_dt,
             )
-        ).all()
-        
-        total_parts = sum(abs(int(t.quantity_delta or 0)) for t in txns)
-        total_value = sum(abs(int(t.quantity_delta or 0)) * (t.part.unit_price or 0) for t in txns if t.part)
-        
-        # Build parts list
-        parts_dict = {}
-        for t in txns:
-            if t.part_id not in parts_dict:
-                parts_dict[t.part_id] = {
-                    "part_id": t.part_id,
-                    "part_name": t.part.name if t.part else "Unknown",
-                    "sku": t.part.sku if t.part else "Unknown",
-                    "quantity": 0,
-                    "value": 0
-                }
-            qty = abs(int(t.quantity_delta or 0))
-            parts_dict[t.part_id]["quantity"] += qty
-            parts_dict[t.part_id]["value"] += qty * (t.part.unit_price or 0) if t.part else 0
-        
-        results.append({
-            "technician_id": tech.id,
-            "technician_name": tech.full_name or tech.email,
-            "total_transactions": len(txns),
-            "total_parts_used": total_parts,
-            "total_value": round(total_value, 2),
-            "parts_list": list(parts_dict.values())
-        })
-    
+            .group_by(Part.id, Part.name, Part.sku)
+            .order_by(func.coalesce(func.sum(qty_abs * unit_price), 0).desc())
+            .limit(parts_limit)
+        )
+
+        part_rows = db.execute(parts_stmt).all()
+        total_transactions = sum(int(r.tx_count or 0) for r in part_rows)
+        total_parts_used = sum(int(r.quantity or 0) for r in part_rows)
+        total_value = sum(float(r.value or 0) for r in part_rows)
+        parts_list = [
+            {
+                "part_id": int(r.part_id),
+                "part_name": r.part_name,
+                "sku": r.sku,
+                "quantity": int(r.quantity or 0),
+                "value": round(float(r.value or 0), 2),
+            }
+            for r in part_rows
+        ]
+
+        results.append(
+            {
+                "technician_id": int(tech.id),
+                "technician_name": tech.full_name or tech.email,
+                "total_transactions": int(total_transactions),
+                "total_parts_used": int(total_parts_used),
+                "total_value": round(float(total_value), 2),
+                "parts_list": parts_list,
+            }
+        )
+
     results.sort(key=lambda x: x["total_value"], reverse=True)
     return results
 
@@ -995,49 +1041,53 @@ def get_my_stock_usage(
     if current_user.role not in ["technician", "lead_technician", "staff", "store_manager", "manager", "admin", "finance"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    if not end_date:
-        end_date = date.today()
-    if not start_date:
-        start_date = (datetime.combine(end_date, datetime.min.time()) - timedelta(days=30)).date()
-    
-    start_dt = datetime.combine(start_date, datetime.min.time())
-    end_dt = datetime.combine(end_date, datetime.max.time())
-    
-    # Get stock transactions by this technician
-    txns = db.query(StockTransaction).filter(
-        and_(
+    _, _, start_dt, end_dt = _coerce_date_range(start_date=start_date, end_date=end_date, default_days=30, max_days=180)
+
+    qty_abs = func.abs(StockTransaction.quantity_delta)
+    unit_price = func.coalesce(Part.unit_price, 0)
+
+    stmt = (
+        select(
+            Part.id.label("part_id"),
+            Part.name.label("part_name"),
+            Part.sku.label("sku"),
+            func.count(StockTransaction.id).label("tx_count"),
+            func.coalesce(func.sum(qty_abs), 0).label("quantity"),
+            func.coalesce(func.sum(qty_abs * unit_price), 0).label("value"),
+        )
+        .select_from(StockTransaction)
+        .join(Part, Part.id == StockTransaction.part_id)
+        .where(
             StockTransaction.technician_id == current_user.id,
             StockTransaction.transaction_type == StockTransactionType.OUT,
             StockTransaction.created_at >= start_dt,
-            StockTransaction.created_at <= end_dt
+            StockTransaction.created_at <= end_dt,
         )
-    ).all()
-    
-    total_parts = sum(abs(int(t.quantity_delta or 0)) for t in txns)
-    total_value = sum(abs(int(t.quantity_delta or 0)) * (t.part.unit_price or 0) for t in txns if t.part)
-    
-    # Build parts list
-    parts_dict = {}
-    for t in txns:
-        if t.part_id not in parts_dict:
-            parts_dict[t.part_id] = {
-                "part_id": t.part_id,
-                "part_name": t.part.name if t.part else "Unknown",
-                "sku": t.part.sku if t.part else "Unknown",
-                "quantity": 0,
-                "value": 0
-            }
-        qty = abs(int(t.quantity_delta or 0))
-        parts_dict[t.part_id]["quantity"] += qty
-        parts_dict[t.part_id]["value"] += qty * (t.part.unit_price or 0) if t.part else 0
-    
+        .group_by(Part.id, Part.name, Part.sku)
+        .order_by(func.coalesce(func.sum(qty_abs * unit_price), 0).desc())
+    )
+    rows = db.execute(stmt).all()
+
+    total_transactions = sum(int(r.tx_count or 0) for r in rows)
+    total_parts = sum(int(r.quantity or 0) for r in rows)
+    total_value = sum(float(r.value or 0) for r in rows)
+
     return {
         "technician_id": current_user.id,
         "technician_name": current_user.full_name or current_user.email,
-        "total_transactions": len(txns),
+        "total_transactions": int(total_transactions),
         "total_parts_used": total_parts,
         "total_value": round(total_value, 2),
-        "parts_list": list(parts_dict.values())
+        "parts_list": [
+            {
+                "part_id": int(r.part_id),
+                "part_name": r.part_name,
+                "sku": r.sku,
+                "quantity": int(r.quantity or 0),
+                "value": round(float(r.value or 0), 2),
+            }
+            for r in rows
+        ],
     }
 
 
@@ -1055,7 +1105,7 @@ class TechnicianFrequentItemsResponse(BaseModel):
 def get_my_frequently_used_items(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1064,45 +1114,51 @@ def get_my_frequently_used_items(
     if current_user.role not in ["technician", "lead_technician", "staff", "store_manager", "manager", "admin", "finance"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    if not end_date:
-        end_date = date.today()
-    if not start_date:
-        start_date = (datetime.combine(end_date, datetime.min.time()) - timedelta(days=90)).date()
-    
-    start_dt = datetime.combine(start_date, datetime.min.time())
-    end_dt = datetime.combine(end_date, datetime.max.time())
-    
-    # Get transaction counts by part for this technician
-    usage_stats = db.query(
-        StockTransaction.part_id,
-        func.count(StockTransaction.id).label("usage_count"),
-        func.sum(func.abs(StockTransaction.quantity_delta)).label("total_quantity")
-    ).filter(
-        and_(
+    _, _, start_dt, end_dt = _coerce_date_range(start_date=start_date, end_date=end_date, default_days=90, max_days=MAX_REPORT_RANGE_DAYS)
+
+    qty_abs = func.abs(StockTransaction.quantity_delta)
+    category_name = func.coalesce(Category.name, "Uncategorized")
+
+    stmt = (
+        select(
+            Part.id.label("part_id"),
+            Part.name.label("part_name"),
+            Part.sku.label("sku"),
+            category_name.label("category"),
+            func.count(StockTransaction.id).label("usage_count"),
+            func.coalesce(func.sum(qty_abs), 0).label("total_quantity"),
+        )
+        .select_from(StockTransaction)
+        .join(Part, Part.id == StockTransaction.part_id)
+        .outerjoin(Category, Category.id == Part.category_id)
+        .where(
             StockTransaction.technician_id == current_user.id,
             StockTransaction.transaction_type == StockTransactionType.OUT,
             StockTransaction.created_at >= start_dt,
-            StockTransaction.created_at <= end_dt
+            StockTransaction.created_at <= end_dt,
         )
-    ).group_by(StockTransaction.part_id).all()
-    
-    results = []
-    for stat in usage_stats:
-        part = db.get(Part, stat.part_id)
-        if part:
-            results.append({
-                "part_id": stat.part_id,
-                "part_name": part.name,
-                "sku": part.sku,
-                "category": part.category.name if part.category else "Uncategorized",
-                "usage_count": stat.usage_count,
-                "total_quantity": int(stat.total_quantity or 0),
-                "average_per_use": round(float(stat.total_quantity or 0) / stat.usage_count, 2) if stat.usage_count else 0
-            })
-    
-    # Sort by usage count and limit
-    results.sort(key=lambda x: x["usage_count"], reverse=True)
-    return results[:limit]
+        .group_by(Part.id, Part.name, Part.sku, Category.name)
+        .order_by(func.count(StockTransaction.id).desc())
+        .limit(limit)
+    )
+
+    rows = db.execute(stmt).all()
+    results: list[dict[str, Any]] = []
+    for r in rows:
+        usage_count = int(r.usage_count or 0)
+        total_qty = int(r.total_quantity or 0)
+        results.append(
+            {
+                "part_id": int(r.part_id),
+                "part_name": r.part_name,
+                "sku": r.sku,
+                "category": r.category,
+                "usage_count": usage_count,
+                "total_quantity": total_qty,
+                "average_per_use": round((float(total_qty) / usage_count), 2) if usage_count else 0,
+            }
+        )
+    return results
 
 
 @router.get("/technician/frequently-used/export")
