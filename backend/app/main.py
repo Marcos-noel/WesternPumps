@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 import logging
 import math
@@ -181,9 +182,49 @@ class RequestMetricsMiddleware(BaseHTTPMiddleware):
 
 def create_app() -> FastAPI:
     error_logger = _configure_error_logger()
+
+    def _on_startup() -> None:
+        if not settings.disable_auth:
+            secret = (settings.jwt_secret or "").strip()
+            forbidden = {"", "change-me", "MUST-BE-SET-VIA-ENV"}
+            if not secret or secret in forbidden or len(secret) < 32:
+                raise RuntimeError(
+                    "JWT_SECRET must be set to a strong random value (≥32 chars) when auth is enabled."
+                )
+        if settings.auto_create_tables:
+            ensure_schema(engine)
+        if settings.seed_admin_email and settings.seed_admin_password:
+            db = SessionLocal()
+            try:
+                email = settings.seed_admin_email.strip().lower()
+                admin = db.query(User).filter(User.email == email).first()
+                if admin is None:
+                    admin = User(
+                        tenant_id=settings.default_tenant_id,
+                        email=email,
+                        full_name=settings.seed_admin_full_name or "Seed Admin",
+                        role="admin",
+                        password_hash=get_password_hash(settings.seed_admin_password),
+                        is_active=True,
+                    )
+                    db.add(admin)
+                    db.commit()
+                elif admin.role != "admin" or not admin.is_active:
+                    admin.role = "admin"
+                    admin.is_active = True
+                    db.commit()
+            finally:
+                db.close()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        _on_startup()
+        yield
+
     app = FastAPI(
         title="WesternPumps API",
         middleware=[Middleware(RequestErrorLoggingMiddleware, logger=error_logger)],
+        lifespan=lifespan,
     )
 
     # CORS configuration
@@ -307,40 +348,6 @@ def create_app() -> FastAPI:
     app.include_router(inventory_science.router)
     app.include_router(ai_assistant.router)
     app.include_router(audit.router)
-
-    @app.on_event("startup")
-    def on_startup() -> None:
-        if not settings.disable_auth:
-            secret = (settings.jwt_secret or "").strip()
-            forbidden = {"", "change-me", "MUST-BE-SET-VIA-ENV"}
-            if not secret or secret in forbidden or len(secret) < 32:
-                raise RuntimeError(
-                    "JWT_SECRET must be set to a strong random value (≥32 chars) when auth is enabled."
-                )
-        if settings.auto_create_tables:
-            ensure_schema(engine)
-        if settings.seed_admin_email and settings.seed_admin_password:
-            db = SessionLocal()
-            try:
-                email = settings.seed_admin_email.strip().lower()
-                admin = db.query(User).filter(User.email == email).first()
-                if admin is None:
-                    admin = User(
-                        tenant_id=settings.default_tenant_id,
-                        email=email,
-                        full_name=settings.seed_admin_full_name or "Seed Admin",
-                        role="admin",
-                        password_hash=get_password_hash(settings.seed_admin_password),
-                        is_active=True,
-                    )
-                    db.add(admin)
-                    db.commit()
-                elif admin.role != "admin" or not admin.is_active:
-                    admin.role = "admin"
-                    admin.is_active = True
-                    db.commit()
-            finally:
-                db.close()
 
     return app
 

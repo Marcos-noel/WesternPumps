@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -36,9 +36,16 @@ class CreateProductArgs(BaseModel):
 
 class UpdateStockArgs(BaseModel):
     part_id: int = Field(ge=1)
-    quantity_delta: int = Field(ne=0)
+    quantity_delta: int
     notes: str | None = Field(default=None, max_length=1000)
     movement_type: str = Field(default="AI_ADJUST")
+
+    @field_validator("quantity_delta")
+    @classmethod
+    def _quantity_delta_nonzero(cls, value: int) -> int:
+        if value == 0:
+            raise ValueError("quantity_delta must be non-zero")
+        return value
 
 
 class DeleteProductArgs(BaseModel):
@@ -55,8 +62,15 @@ class GenerateReportArgs(BaseModel):
 
 class BulkUpdateLine(BaseModel):
     part_id: int = Field(ge=1)
-    quantity_delta: int = Field(ne=0)
+    quantity_delta: int
     notes: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("quantity_delta")
+    @classmethod
+    def _quantity_delta_nonzero(cls, value: int) -> int:
+        if value == 0:
+            raise ValueError("quantity_delta must be non-zero")
+        return value
 
 
 class BulkUpdateStockArgs(BaseModel):

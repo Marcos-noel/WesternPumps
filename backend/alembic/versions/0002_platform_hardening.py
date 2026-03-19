@@ -6,6 +6,8 @@ Create Date: 2026-02-19 17:12:00
 """
 from __future__ import annotations
 
+from sqlalchemy.engine.reflection import Inspector
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -16,15 +18,15 @@ branch_labels = None
 depends_on = None
 
 
-def _has_table(inspector, table_name: str) -> bool:
+def _has_table(inspector: Inspector, table_name: str) -> bool:
     return table_name in inspector.get_table_names()
 
 
-def _has_column(inspector, table_name: str, column_name: str) -> bool:
+def _has_column(inspector: Inspector, table_name: str, column_name: str) -> bool:
     return any(c["name"] == column_name for c in inspector.get_columns(table_name))
 
 
-def _has_index(inspector, table_name: str, index_name: str) -> bool:
+def _has_index(inspector: Inspector, table_name: str, index_name: str) -> bool:
     return any(idx.get("name") == index_name for idx in inspector.get_indexes(table_name))
 
 

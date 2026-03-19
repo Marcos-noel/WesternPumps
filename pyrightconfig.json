@@ -1,0 +1,15 @@
+{
+  "include": ["backend/app", "backend/tests", "backend/alembic"],
+  "exclude": ["frontend", "**/node_modules", "**/dist", "**/__pycache__"],
+  "executionEnvironments": [
+    {
+      "root": "backend"
+    }
+  ],
+  "venvPath": "backend",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false
+}

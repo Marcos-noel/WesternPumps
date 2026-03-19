@@ -593,7 +593,7 @@ def kpi_summary(db: Session = Depends(get_db), lookback_days: int = Query(90, ge
     last_tx_subq = select(StockTransaction.part_id, func.max(StockTransaction.created_at).label("last_tx")).group_by(StockTransaction.part_id).subquery()
     last_tx_rows = db.execute(select(last_tx_subq.c.part_id, last_tx_subq.c.last_tx)).all()
     now_aware = datetime.now(UTC)
-    now_naive = datetime.utcnow()
+    now_naive = now_aware.replace(tzinfo=None)
     over_30 = over_60 = over_90 = 0
     for row in last_tx_rows:
         last_tx = row.last_tx

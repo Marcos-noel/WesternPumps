@@ -9,7 +9,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
 
@@ -517,8 +517,7 @@ class CustomReportResponse(BaseModel):
     is_public: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.post("/custom", response_model=CustomReportResponse)
