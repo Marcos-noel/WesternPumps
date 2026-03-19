@@ -11,7 +11,7 @@ import uuid
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware import Middleware
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +22,7 @@ from starlette.types import ASGIApp
 
 from app.config import settings
 from app.db import Base, SessionLocal, engine, ensure_schema
+from app.deps import require_roles
 from app.models import User
 from app.security import get_password_hash
 from app.routers import admin_settings, ai_assistant, assistant, auth, audit, categories, customers, deliveries, imports, integrations, inventory_science, jobs, locations, operations, parts, platform_ops, realtime, reports, reports_v2, requests, stock, suppliers, users, workflow
@@ -187,28 +188,13 @@ def create_app() -> FastAPI:
 
     # CORS configuration
     origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-    
-    # Check if running in development (localhost) or production
-    is_local_dev = any("localhost" in o or "127.0.0.1" in o for o in origins)
-    
-    if settings.disable_auth or is_local_dev:
-        # Allow all origins in development mode
-        allow_origins = ["*"]
-        allow_credentials = False
-    else:
-        # Production: add common frontend domains as fallback and allow all for now
-        # This ensures compatibility with various frontend deployments
-        fallback_domains = [
-            "https://western-pumps-np2i.vercel.app",
-            "https://westernpumps-vk0u.onrender.com",
-            "https://*.vercel.app",
-            "https://*.render.com",
-        ]
-        for domain in fallback_domains:
-            if domain not in origins:
-                origins.append(domain)
-        allow_origins = origins
-        allow_credentials = True
+
+    # If you need broader origins in production, set them explicitly via CORS_ORIGINS.
+    # Avoid shipping wildcard lists like `https://*.vercel.app` in allow_origins (they are not supported).
+    allow_origins = ["*"] if settings.disable_auth or "*" in origins else origins
+    # This API uses bearer tokens (Authorization header), not cookies.
+    # Keeping credentials disabled avoids invalid configurations like "*" + credentials.
+    allow_credentials = False
 
     app.add_middleware(
         CORSMiddleware,
@@ -261,7 +247,7 @@ def create_app() -> FastAPI:
         return uptime_metrics.snapshot()
 
     @app.get("/metrics", response_class=PlainTextResponse)
-    def metrics() -> str:
+    def metrics(_: User = Depends(require_roles("admin", "manager", "finance"))) -> str:
         snap = uptime_metrics.snapshot()
         lines = [
             "# HELP westernpumps_requests_total Total number of API requests.",

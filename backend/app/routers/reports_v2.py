@@ -14,7 +14,7 @@ from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_roles
 from app.models import (
     User, Job, Customer, Part, StockTransaction,
     StockTransactionType,
@@ -714,11 +714,9 @@ def get_stock_usage_report(
     end_date: Optional[date] = None,
     limit: int = 50,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
 ):
     """Get stock usage report - for Store Manager role"""
-    if current_user.role not in ["store_manager", "manager", "admin", "finance", "lead_technician"]:
-        raise HTTPException(status_code=403, detail="Access denied")
     
     # Default to last 30 days
     if not end_date:
@@ -777,11 +775,9 @@ def get_frequently_used_items(
     end_date: Optional[date] = None,
     limit: int = 20,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
 ):
     """Get most frequently used stock items - for Store Manager role"""
-    if current_user.role not in ["store_manager", "manager", "admin", "finance", "lead_technician"]:
-        raise HTTPException(status_code=403, detail="Access denied")
     
     if not end_date:
         end_date = date.today()
@@ -836,11 +832,9 @@ def get_stock_usage_by_technician(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
 ):
     """Get stock usage segmented by technician - for Store Manager role"""
-    if current_user.role not in ["store_manager", "manager", "admin", "finance", "lead_technician"]:
-        raise HTTPException(status_code=403, detail="Access denied")
     
     if not end_date:
         end_date = date.today()
@@ -904,7 +898,7 @@ def export_stock_usage_report(
     end_date: Optional[date] = None,
     limit: int = 500,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
 ) -> Response:
     rows = get_stock_usage_report(start_date=start_date, end_date=end_date, limit=limit, db=db, current_user=current_user)
     headers = ["Part ID", "SKU", "Part Name", "Category", "Total Used", "Usage Count", "Total Value"]
@@ -931,7 +925,7 @@ def export_frequently_used_items(
     end_date: Optional[date] = None,
     limit: int = 200,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
 ) -> Response:
     items = get_frequently_used_items(start_date=start_date, end_date=end_date, limit=limit, db=db, current_user=current_user)
     headers = ["Part ID", "SKU", "Part Name", "Category", "Usage Count", "Total Quantity", "Average Per Use"]
@@ -957,7 +951,7 @@ def export_usage_by_technician(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
 ) -> Response:
     rows = get_stock_usage_by_technician(start_date=start_date, end_date=end_date, db=db, current_user=current_user)
     headers = ["Technician ID", "Technician", "Total Transactions", "Total Parts Used", "Total Value"]

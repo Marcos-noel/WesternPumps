@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = "https://api.openai.com/v1"
+    assistant_tools_enabled: bool = False
 
 
 settings = Settings()

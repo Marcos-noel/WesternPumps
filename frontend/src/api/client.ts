@@ -1,10 +1,12 @@
 import axios from "axios";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+// In production, prefer same-origin API calls and rely on platform rewrites (e.g. Vercel) to reach the backend.
+// This avoids mixed-content + CORS issues on mobile and makes deployments resilient when env vars are missing.
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "").trim();
 const disableAuth = import.meta.env.VITE_DISABLE_AUTH === "true";
 
 export const api = axios.create({
-  baseURL: apiBaseUrl
+  baseURL: apiBaseUrl || ""
 });
 
 api.interceptors.request.use((config) => {

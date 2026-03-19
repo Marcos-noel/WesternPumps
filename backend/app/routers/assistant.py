@@ -560,7 +560,7 @@ def analyze(
 
     tool_call = _extract_tool_call(result.get("tool_call"))
     tool_result: ToolExecutionResult | None = None
-    if tool_call is not None and payload.allow_tool_execution:
+    if tool_call is not None and payload.allow_tool_execution and settings.assistant_tools_enabled:
         try:
             tool_result = execute_tool_call(db, current_user, tool_call)
             answer = f"{answer}\n\nAction executed: {tool_result.message}"
@@ -585,6 +585,9 @@ def analyze(
             )
             answer = f"{answer}\n\nAction failed: {tool_result.message}"
             evidence = [*evidence, f"tool:{tool_call.name}:failed"][:20]
+    elif tool_call is not None and payload.allow_tool_execution and not settings.assistant_tools_enabled:
+        answer = f"{answer}\n\nAction execution is disabled by the server configuration."
+        evidence = [*evidence, f"tool:{tool_call.name}:disabled_by_server"][:20]
     elif tool_call is not None:
         answer = f"{answer}\n\nAction requires explicit confirmation before execution."
         evidence = [*evidence, f"tool:{tool_call.name}:confirmation_required"][:20]

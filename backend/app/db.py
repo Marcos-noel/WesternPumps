@@ -101,6 +101,8 @@ def ensure_schema(engine: Engine) -> None:
     Base.metadata.create_all(bind=engine)
 
     inspector = inspect(engine)
+    dialect = engine.dialect.name
+    datetime_type = "TIMESTAMP" if dialect == "postgresql" else "DATETIME"
     if not inspector.has_table("tenants"):
         table = Base.metadata.tables.get("tenants")
         if table is not None:
@@ -321,7 +323,7 @@ def ensure_schema(engine: Engine) -> None:
             if "closure_type" not in request_columns:
                 conn.execute(text("ALTER TABLE stock_requests ADD COLUMN closure_type VARCHAR(20) NULL"))
             if "closed_at" not in request_columns:
-                conn.execute(text("ALTER TABLE stock_requests ADD COLUMN closed_at DATETIME NULL"))
+                conn.execute(text(f"ALTER TABLE stock_requests ADD COLUMN closed_at {datetime_type} NULL"))
 
     # Patch forward stock_transactions columns for request workflows.
     if not inspector.has_table("stock_transactions"):
@@ -349,7 +351,7 @@ def ensure_schema(engine: Engine) -> None:
             if "lock_token" not in outbox_columns:
                 conn.execute(text("ALTER TABLE outbox_events ADD COLUMN lock_token VARCHAR(120) NULL"))
             if "locked_at" not in outbox_columns:
-                conn.execute(text("ALTER TABLE outbox_events ADD COLUMN locked_at DATETIME NULL"))
+                conn.execute(text(f"ALTER TABLE outbox_events ADD COLUMN locked_at {datetime_type} NULL"))
 
     if inspector.has_table("delivery_requests"):
         delivery_columns = {c["name"] for c in inspector.get_columns("delivery_requests")}
@@ -357,7 +359,7 @@ def ensure_schema(engine: Engine) -> None:
             if "approved_by_user_id" not in delivery_columns:
                 conn.execute(text("ALTER TABLE delivery_requests ADD COLUMN approved_by_user_id INTEGER NULL"))
             if "approved_at" not in delivery_columns:
-                conn.execute(text("ALTER TABLE delivery_requests ADD COLUMN approved_at DATETIME NULL"))
+                conn.execute(text(f"ALTER TABLE delivery_requests ADD COLUMN approved_at {datetime_type} NULL"))
             if "rejected_reason" not in delivery_columns:
                 conn.execute(text("ALTER TABLE delivery_requests ADD COLUMN rejected_reason TEXT NULL"))
 
@@ -388,7 +390,7 @@ def ensure_schema(engine: Engine) -> None:
         usage_columns = {c["name"] for c in inspector.get_columns("usage_records")}
         with engine.begin() as conn:
             if "used_at" not in usage_columns:
-                conn.execute(text("ALTER TABLE usage_records ADD COLUMN used_at DATETIME NULL"))
+                conn.execute(text(f"ALTER TABLE usage_records ADD COLUMN used_at {datetime_type} NULL"))
                 conn.execute(text("UPDATE usage_records SET used_at = created_at WHERE used_at IS NULL"))
             if "record_hash" not in usage_columns:
                 conn.execute(text("ALTER TABLE usage_records ADD COLUMN record_hash VARCHAR(64) NULL"))

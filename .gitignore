@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 # Python
 __pycache__/
@@ -48,4 +49,3 @@ tmp_*
 *.zip
 *.xlsx
 *.enc
-
