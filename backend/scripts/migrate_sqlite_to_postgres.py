@@ -2,7 +2,7 @@
 """
 Migration script to export data from SQLite to PostgreSQL.
 This script exports users and other core data from the local SQLite database
-to the production PostgreSQL database on Render.
+to a target PostgreSQL database.
 """
 import os
 import sys
@@ -12,12 +12,8 @@ from datetime import datetime
 # Add backend to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-# PostgreSQL connection string from render.yaml
-# postgresql://westernpumps:JD10CKR8BvvtVGA7an6zry8IphkCtjm1@dpg-d6spqstm5p6s73b01030-a/westernpumps
-
 POSTGRES_URL = os.environ.get(
-    "DATABASE_URL",
-"postgresql://marcos_noel23:xwszqrbJEzg3EMfZ3jp3xiknFzJ5Pidi@dpg-d6spqstm5p6s73b01030-a.oregon-postgres.render.com/westernpumps?sslmode=require"
+    "DATABASE_URL"
 )
 
 SQLITE_DB = "devdata/westernpumps.db"
@@ -31,6 +27,8 @@ def get_sqlite_connection():
 def get_postgres_connection():
     """Get connection to PostgreSQL database."""
     import psycopg2
+    if not POSTGRES_URL:
+        raise RuntimeError("DATABASE_URL env var is required (do not hardcode secrets in this repo).")
     return psycopg2.connect(POSTGRES_URL)
 
 
@@ -74,6 +72,8 @@ VALUES (1, %s, %s, %s, %s, %s, %s::boolean, %s, %s)
 
 def export_all_data(sqlite_db_path: str, postgres_url: str):
     """Export all tables from SQLite to PostgreSQL."""
+    if not postgres_url:
+        raise RuntimeError("DATABASE_URL env var is required (do not hardcode secrets in this repo).")
     
     print("=" * 50)
     print("SQLite to PostgreSQL Migration Script")

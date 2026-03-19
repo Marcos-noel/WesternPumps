@@ -23,6 +23,8 @@ export default function AdminSettingsPage() {
   const { user } = useAuth();
   const role = (user?.role || "technician").toLowerCase();
   const canEditThresholds = role === "manager" || role === "finance";
+  const canManageIntegrations = role === "admin" || role === "manager";
+  const canRetryOutbox = role === "admin";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -295,6 +297,10 @@ export default function AdminSettingsPage() {
   async function handleRetryDeadLetters() {
     setPlatformLoading(true);
     try {
+      if (!canRetryOutbox) {
+        setError("Access denied: only Admin can retry dead-letter outbox events.");
+        return;
+      }
       const res = await retryDeadOutbox(200);
       setSuccess(`Retried ${res.retried} dead-letter event(s).`);
       await loadPlatformSignals();
@@ -310,6 +316,10 @@ export default function AdminSettingsPage() {
     setError(null);
     setSuccess(null);
     try {
+      if (!canManageIntegrations) {
+        setError("Access denied: only Admin/Manager can update integrations.");
+        return;
+      }
       if (integrationScope === "finance") {
         const res = await updateFinanceIntegration({
           ...financeIntegration,
@@ -467,6 +477,8 @@ export default function AdminSettingsPage() {
                   <img
                     src={brandingLogoUrl}
                     alt="Configured logo preview"
+                    loading="lazy"
+                    decoding="async"
                     style={{ width: 80, height: 80, objectFit: "contain", borderRadius: 10, border: "1px solid rgba(15,23,42,0.15)", background: "white", padding: 8 }}
                   />
                 ) : null}
@@ -691,7 +703,12 @@ export default function AdminSettingsPage() {
               <Tag color={outboxHealth.dead > 0 ? "red" : "default"}>Dead {outboxHealth.dead}</Tag>
               <Tag color="blue">Done 24h {outboxHealth.done_last_24h}</Tag>
             </Space>
-            <Button danger={outboxHealth.dead > 0} onClick={handleRetryDeadLetters} loading={platformLoading}>
+            <Button
+              danger={outboxHealth.dead > 0}
+              onClick={handleRetryDeadLetters}
+              loading={platformLoading}
+              disabled={!canRetryOutbox}
+            >
               Retry Dead Letters
             </Button>
           </Space>
@@ -719,6 +736,7 @@ export default function AdminSettingsPage() {
             <Form.Item label="API Base URL">
               <Input
                 value={selectedIntegration.api_base}
+                disabled={!canManageIntegrations}
                 onChange={(e) => {
                   const value = e.target.value;
                   if (integrationScope === "finance") setFinanceIntegration((prev) => ({ ...prev, api_base: value }));
@@ -731,6 +749,7 @@ export default function AdminSettingsPage() {
             <Form.Item label="Webhook URL">
               <Input
                 value={selectedIntegration.webhook_url}
+                disabled={!canManageIntegrations}
                 onChange={(e) => {
                   const value = e.target.value;
                   if (integrationScope === "finance") setFinanceIntegration((prev) => ({ ...prev, webhook_url: value }));
@@ -743,6 +762,7 @@ export default function AdminSettingsPage() {
             <Form.Item label="Webhook Secret">
               <Input.Password
                 value={integrationScope === "finance" ? financeSecret : integrationScope === "erp" ? erpSecret : accountingSecret}
+                disabled={!canManageIntegrations}
                 onChange={(e) => {
                   const value = e.target.value;
                   if (integrationScope === "finance") setFinanceSecret(value);
@@ -755,6 +775,7 @@ export default function AdminSettingsPage() {
             <Form.Item label="Enabled">
               <Switch
                 checked={selectedIntegration.enabled}
+                disabled={!canManageIntegrations}
                 onChange={(checked) => {
                   if (integrationScope === "finance") setFinanceIntegration((prev) => ({ ...prev, enabled: checked }));
                   if (integrationScope === "erp") setErpIntegration((prev) => ({ ...prev, enabled: checked }));
@@ -764,7 +785,7 @@ export default function AdminSettingsPage() {
             </Form.Item>
           </div>
           <Space>
-            <Button type="primary" loading={integrationSaving} onClick={handleSaveIntegration}>
+            <Button type="primary" loading={integrationSaving} onClick={handleSaveIntegration} disabled={!canManageIntegrations}>
               Save Integration
             </Button>
             <Button onClick={handleTestIntegration} loading={integrationTesting}>

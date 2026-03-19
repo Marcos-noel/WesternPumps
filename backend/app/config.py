@@ -15,7 +15,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    database_url: str = "mysql+pymysql://westernpumps:westernpumps@localhost:3306/westernpumps"
+    database_url: str = "postgresql://westernpumps:westernpumps@localhost:5432/westernpumps"
     jwt_secret: str = "MUST-BE-SET-VIA-ENV"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24

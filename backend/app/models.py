@@ -37,9 +37,12 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    role: Mapped[str] = mapped_column(String(50), default="technician")  # admin | lead_technician | technician | store_manager | manager | approver | finance
+    role: Mapped[str] = mapped_column(String(50), default="technician")  # admin | lead_technician | technician | store_manager | manager | approver | finance | customer_wp
     password_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(default=True)
+    # Technician-specific fields
+    region: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Nairobi/Industrial | Nakuru | Mombasa
+    area_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # For site navigation
 
     created_jobs: Mapped[list["Job"]] = relationship(
         back_populates="created_by",
@@ -128,6 +131,10 @@ class Customer(Base, TimestampMixin):
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Enhanced location and personnel fields
+    latitude: Mapped[Optional[float]] = mapped_column(Numeric(9, 6), nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Numeric(9, 6), nullable=True)
+    capacity_personnel: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Number of personnel
 
     jobs: Mapped[list["Job"]] = relationship(back_populates="customer")
 
@@ -217,6 +224,11 @@ class Supplier(Base, TimestampMixin):
     address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Enhanced location and driver fields
+    latitude: Mapped[Optional[float]] = mapped_column(Numeric(9, 6), nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Numeric(9, 6), nullable=True)
+    driver_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Driver for supply drops
+    capacity_personnel: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Number of personnel
 
     parts: Mapped[list["Part"]] = relationship(back_populates="supplier")
 
@@ -965,6 +977,28 @@ class JobSchedule(Base, TimestampMixin):
 
     job: Mapped["Job"] = relationship()
     assigned_technician: Mapped["User"] = relationship()
+
+
+class TechnicianLabor(Base, TimestampMixin):
+    """Technician labor tracking - tracks fuel and fare expenses for technicians"""
+    __tablename__ = "technician_labor"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), default=1, index=True)
+    technician_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("jobs.id"), nullable=True, index=True)
+    date: Mapped[date] = mapped_column(Date, index=True)
+    labor_hours: Mapped[float] = mapped_column(Numeric(6, 2), default=0)
+    labor_rate: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    labor_cost: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    fuel_cost: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    fare_cost: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    other_expenses: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    total_cost: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="PENDING")
+    approved_by_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class TechnicianAvailability(Base, TimestampMixin):

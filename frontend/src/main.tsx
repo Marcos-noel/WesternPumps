@@ -19,6 +19,7 @@ import "@mantine/dates/styles.css";
 import "@mantine/notifications/styles.css";
 import "./tailwind.css";
 import "./styles.css";
+import "./responsive.css";
 
 function AppRoot() {
   const { isDarkMode } = useThemeMode();

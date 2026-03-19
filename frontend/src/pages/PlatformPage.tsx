@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { Card, Row, Col, Statistic, Button, Descriptions, Tag, Space, message, Spin } from "antd";
 import { ReloadOutlined, CheckCircleOutlined, WarningOutlined, CloseCircleOutlined, SyncOutlined } from "@ant-design/icons";
 import { platformApi, type OutboxHealth, type ComplianceStatus, type SystemAbout } from "../api/platform";
+import { useAuth } from "../state/AuthContext";
 
 export default function PlatformPage() {
+  const { user, isAdmin } = useAuth();
   const [loading, setLoading] = useState(false);
   const [outboxHealth, setOutboxHealth] = useState<OutboxHealth | null>(null);
   const [compliance, setCompliance] = useState<ComplianceStatus | null>(null);
@@ -33,6 +35,10 @@ export default function PlatformPage() {
 
   const handleRetryDeadLetters = async () => {
     try {
+      if (!isAdmin) {
+        message.error("Access denied: only Admin can retry dead letters");
+        return;
+      }
       const result = await platformApi.retryDeadLetters();
       message.success(`Retried ${result.retried} dead letters`);
       loadAllData();
@@ -53,13 +59,17 @@ export default function PlatformPage() {
   };
 
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <h1>Platform Operations</h1>
-        <Button icon={<ReloadOutlined />} onClick={loadAllData} loading={loading}>
-          Refresh
-        </Button>
-      </div>
+    <div className="container page-shell">
+      <Row gutter={[12, 12]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
+        <Col xs={24} md={10}>
+          <h1 style={{ margin: 0 }}>Platform Operations</h1>
+        </Col>
+        <Col xs={24} md={14} style={{ display: "flex", justifyContent: "flex-end" }}>
+          <Button icon={<ReloadOutlined />} onClick={loadAllData} loading={loading}>
+            Refresh
+          </Button>
+        </Col>
+      </Row>
 
       {loading ? (
         <div style={{ textAlign: "center", padding: 50 }}>
@@ -67,23 +77,23 @@ export default function PlatformPage() {
         </div>
       ) : (
         <>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={6}>
+          <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+            <Col xs={24} sm={12} lg={6}>
               <Card title="Outbox - Pending">
                 <Statistic value={outboxHealth?.pending || 0} valueStyle={{ color: "#1890ff" }} />
               </Card>
             </Col>
-            <Col span={6}>
+            <Col xs={24} sm={12} lg={6}>
               <Card title="Outbox - Processing">
                 <Statistic value={outboxHealth?.processing || 0} valueStyle={{ color: "#faad14" }} />
               </Card>
             </Col>
-            <Col span={6}>
+            <Col xs={24} sm={12} lg={6}>
               <Card title="Outbox - Failed">
                 <Statistic value={outboxHealth?.failed || 0} valueStyle={{ color: "#ff4d4f" }} />
               </Card>
             </Col>
-            <Col span={6}>
+            <Col xs={24} sm={12} lg={6}>
               <Card title="Outbox - Dead">
                 <Statistic value={outboxHealth?.dead || 0} valueStyle={{ color: "#ff4d4f" }} />
               </Card>
@@ -98,14 +108,14 @@ export default function PlatformPage() {
                 danger
                 icon={<SyncOutlined />}
                 onClick={handleRetryDeadLetters}
-                disabled={(outboxHealth?.dead || 0) === 0}
+                disabled={!isAdmin || (outboxHealth?.dead || 0) === 0}
               >
                 Retry Dead Letters
               </Button>
             }
             style={{ marginBottom: 16 }}
           >
-            <Descriptions column={4}>
+            <Descriptions column={{ xs: 1, sm: 2, md: 4 }}>
               <Descriptions.Item label="Done (24h)">{outboxHealth?.done_last_24h || 0}</Descriptions.Item>
               <Descriptions.Item label="Pending">{outboxHealth?.pending || 0}</Descriptions.Item>
               <Descriptions.Item label="Processing">{outboxHealth?.processing || 0}</Descriptions.Item>
@@ -120,7 +130,7 @@ export default function PlatformPage() {
               </Tag>
               <span>Generated: {compliance ? new Date(compliance.generated_at).toLocaleString() : "-"}</span>
             </Space>
-            <Descriptions column={4} style={{ marginTop: 16 }}>
+            <Descriptions column={{ xs: 1, sm: 2, md: 4 }} style={{ marginTop: 16 }}>
               <Descriptions.Item label="Auth Enabled">{compliance?.auth_enabled ? "✓" : "✗"}</Descriptions.Item>
               <Descriptions.Item label="HTTPS Enforced">{compliance?.https_enforced ? "✓" : "✗"}</Descriptions.Item>
               <Descriptions.Item label="Security Headers">{compliance?.security_headers_enabled ? "✓" : "✗"}</Descriptions.Item>
@@ -132,7 +142,7 @@ export default function PlatformPage() {
           </Card>
 
           <Card title="System Information">
-            <Descriptions column={2}>
+            <Descriptions column={{ xs: 1, md: 2 }}>
               <Descriptions.Item label="System Name">{systemAbout?.system_name || "-"}</Descriptions.Item>
               <Descriptions.Item label="Deployment Mode">{systemAbout?.deployment_mode || "-"}</Descriptions.Item>
               <Descriptions.Item label="Auth Mode">{systemAbout?.auth_mode || "-"}</Descriptions.Item>

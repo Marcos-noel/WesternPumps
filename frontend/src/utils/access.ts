@@ -17,6 +17,8 @@ export type AppPageKey =
   | "reports"
   | "reports_v2"
   | "store_manager_reports"
+  | "lead_tech_reports"
+  | "technician_reports"
   | "users"
   | "admin_settings"
   | "guide"
@@ -29,7 +31,7 @@ export type AppPageKey =
 
 const ACCESS_RULES: Record<AppPageKey, UserRole[]> = {
   assistant: ["admin", "manager", "store_manager", "approver", "lead_technician", "technician", "finance", "staff"],
-  console: ["admin", "manager", "store_manager", "approver", "lead_technician", "technician", "finance", "staff"],
+  console: ["admin", "manager"],
   dashboard: ["admin", "manager", "store_manager", "approver", "lead_technician", "technician", "finance", "staff", "rider", "driver"],
   customers: ["admin", "manager", "store_manager", "lead_technician"],
   jobs: ["admin", "manager", "store_manager", "lead_technician", "technician", "staff"],
@@ -41,9 +43,15 @@ const ACCESS_RULES: Record<AppPageKey, UserRole[]> = {
   suppliers: ["admin", "manager", "store_manager"],
   requests: ["admin", "manager", "store_manager", "approver", "lead_technician", "technician", "staff"],
   approvals: ["admin", "manager", "approver"],
+  // Admin, Manager, Finance: Full reports (supplier performance, inventory analytics, technician usage)
   reports: ["admin", "manager", "finance"],
   reports_v2: ["admin", "manager", "finance"],
+  // Store Manager: Location-specific reports (supplier deliveries, inventory movement, stock consumption)
   store_manager_reports: ["admin", "manager", "store_manager", "finance"],
+  // Lead Technician: Job creation + technician activity reports
+  lead_tech_reports: ["admin", "manager", "lead_technician"],
+  // Technician: Personal performance reports (own items, completed tasks, faulty returns)
+  technician_reports: ["admin", "manager", "lead_technician", "technician"],
   users: ["admin"],
   admin_settings: ["admin", "manager", "finance"],
   guide: ["admin", "manager", "store_manager", "approver", "lead_technician", "technician", "finance", "staff", "rider", "driver"],
@@ -51,7 +59,7 @@ const ACCESS_RULES: Record<AppPageKey, UserRole[]> = {
   my_settings: ["admin", "manager", "store_manager", "approver", "lead_technician", "technician", "finance", "staff", "rider", "driver"],
   audit: ["admin"],
   inventory_science: ["admin", "manager", "store_manager"],
-  platform: ["admin"],
+  platform: ["admin", "manager", "finance"],
   workflow: ["admin", "manager"],
 };
 
@@ -88,6 +96,9 @@ export function allowedLandingPages(role: string | null | undefined): string[] {
     { page: "guide", path: "/guide" },
     { page: "inventory_guide", path: "/inventory-guide" },
     { page: "reports", path: "/reports" },
+    { page: "store_manager_reports", path: "/store-manager-reports" },
+    { page: "lead_tech_reports", path: "/lead-tech-reports" },
+    { page: "technician_reports", path: "/technician-reports" },
   ];
   return map.filter((entry) => canAccessPage(role, entry.page)).map((entry) => entry.path);
 }

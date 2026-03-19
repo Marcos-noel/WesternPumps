@@ -1,11 +1,14 @@
 """
 Enhanced Reports API - Profitability, Productivity, Valuation, and Custom Reports
 """
+import csv
 from datetime import datetime, date, timedelta
+import io
 from typing import Optional, Any
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
@@ -14,12 +17,26 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.models import (
     User, Job, Customer, Part, StockTransaction,
+    StockTransactionType,
     Invoice, InvoiceLine, Payment, JobCosting, JobSchedule,
     BatchUsageRecord, UsageRecord, StockRequest, PurchaseOrder,
     CustomReportDefinition
 )
 
 router = APIRouter(prefix="/api/reports", tags=["Reports V2"])
+
+
+def _csv_response(*, filename: str, headers: list[str], rows: list[list[str]]) -> Response:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    content = buf.getvalue().encode("utf-8")
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ============================================
@@ -700,7 +717,7 @@ def get_stock_usage_report(
     current_user: User = Depends(get_current_user),
 ):
     """Get stock usage report - for Store Manager role"""
-    if current_user.role not in ["store_manager", "manager", "admin", "finance"]:
+    if current_user.role not in ["store_manager", "manager", "admin", "finance", "lead_technician"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Default to last 30 days
@@ -715,7 +732,7 @@ def get_stock_usage_report(
     # Get all stock transactions that are OUT (issued/used)
     transactions = db.query(StockTransaction).filter(
         and_(
-            StockTransaction.transaction_type == "OUT",
+            StockTransaction.transaction_type == StockTransactionType.OUT,
             StockTransaction.created_at >= start_dt,
             StockTransaction.created_at <= end_dt
         )
@@ -734,7 +751,7 @@ def get_stock_usage_report(
                 "total_value": 0,
                 "usage_count": 0
             }
-        qty = abs(txn.quantity_change or 0)
+        qty = abs(int(txn.quantity_delta or 0))
         usage_data[txn.part_id]["total_used"] += qty
         usage_data[txn.part_id]["total_value"] += qty * (txn.part.unit_price or 0) if txn.part else 0
         usage_data[txn.part_id]["usage_count"] += 1
@@ -763,7 +780,7 @@ def get_frequently_used_items(
     current_user: User = Depends(get_current_user),
 ):
     """Get most frequently used stock items - for Store Manager role"""
-    if current_user.role not in ["store_manager", "manager", "admin", "finance"]:
+    if current_user.role not in ["store_manager", "manager", "admin", "finance", "lead_technician"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     if not end_date:
@@ -775,15 +792,13 @@ def get_frequently_used_items(
     end_dt = datetime.combine(end_date, datetime.max.time())
     
     # Get transaction counts by part
-    from sqlalchemy import func
-    
     usage_stats = db.query(
         StockTransaction.part_id,
         func.count(StockTransaction.id).label("usage_count"),
-        func.sum(func.abs(StockTransaction.quantity_change)).label("total_quantity")
+        func.sum(func.abs(StockTransaction.quantity_delta)).label("total_quantity")
     ).filter(
         and_(
-            StockTransaction.transaction_type == "OUT",
+            StockTransaction.transaction_type == StockTransactionType.OUT,
             StockTransaction.created_at >= start_dt,
             StockTransaction.created_at <= end_dt
         )
@@ -824,7 +839,7 @@ def get_stock_usage_by_technician(
     current_user: User = Depends(get_current_user),
 ):
     """Get stock usage segmented by technician - for Store Manager role"""
-    if current_user.role not in ["store_manager", "manager", "admin", "finance"]:
+    if current_user.role not in ["store_manager", "manager", "admin", "finance", "lead_technician"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     if not end_date:
@@ -845,15 +860,15 @@ def get_stock_usage_by_technician(
         # Get stock transactions by this technician
         txns = db.query(StockTransaction).filter(
             and_(
-                StockTransaction.performed_by_user_id == tech.id,
-                StockTransaction.transaction_type == "OUT",
+                StockTransaction.technician_id == tech.id,
+                StockTransaction.transaction_type == StockTransactionType.OUT,
                 StockTransaction.created_at >= start_dt,
                 StockTransaction.created_at <= end_dt
             )
         ).all()
         
-        total_parts = sum(abs(t.quantity_change or 0) for t in txns)
-        total_value = sum(abs(t.quantity_change or 0) * (t.part.unit_price or 0) for t in txns if t.part)
+        total_parts = sum(abs(int(t.quantity_delta or 0)) for t in txns)
+        total_value = sum(abs(int(t.quantity_delta or 0)) * (t.part.unit_price or 0) for t in txns if t.part)
         
         # Build parts list
         parts_dict = {}
@@ -866,7 +881,7 @@ def get_stock_usage_by_technician(
                     "quantity": 0,
                     "value": 0
                 }
-            qty = abs(t.quantity_change or 0)
+            qty = abs(int(t.quantity_delta or 0))
             parts_dict[t.part_id]["quantity"] += qty
             parts_dict[t.part_id]["value"] += qty * (t.part.unit_price or 0) if t.part else 0
         
@@ -881,3 +896,299 @@ def get_stock_usage_by_technician(
     
     results.sort(key=lambda x: x["total_value"], reverse=True)
     return results
+
+
+@router.get("/store-manager/stock-usage/export")
+def export_stock_usage_report(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 500,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    rows = get_stock_usage_report(start_date=start_date, end_date=end_date, limit=limit, db=db, current_user=current_user)
+    headers = ["Part ID", "SKU", "Part Name", "Category", "Total Used", "Usage Count", "Total Value"]
+    csv_rows: list[list[str]] = []
+    for r in rows:
+        csv_rows.append(
+            [
+                str(r.get("part_id", "")),
+                str(r.get("sku", "")),
+                str(r.get("part_name", "")),
+                str(r.get("category", "")),
+                str(r.get("total_used", 0)),
+                str(r.get("usage_count", 0)),
+                str(r.get("total_value", 0)),
+            ]
+        )
+    filename = f"stock-usage-{(start_date or date.today()).isoformat()}-{(end_date or date.today()).isoformat()}.csv"
+    return _csv_response(filename=filename, headers=headers, rows=csv_rows)
+
+
+@router.get("/store-manager/frequently-used/export")
+def export_frequently_used_items(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    items = get_frequently_used_items(start_date=start_date, end_date=end_date, limit=limit, db=db, current_user=current_user)
+    headers = ["Part ID", "SKU", "Part Name", "Category", "Usage Count", "Total Quantity", "Average Per Use"]
+    csv_rows: list[list[str]] = []
+    for i in items:
+        csv_rows.append(
+            [
+                str(i.get("part_id", "")),
+                str(i.get("sku", "")),
+                str(i.get("part_name", "")),
+                str(i.get("category", "")),
+                str(i.get("usage_count", 0)),
+                str(i.get("total_quantity", 0)),
+                str(i.get("average_per_use", 0)),
+            ]
+        )
+    filename = f"frequently-used-{(start_date or date.today()).isoformat()}-{(end_date or date.today()).isoformat()}.csv"
+    return _csv_response(filename=filename, headers=headers, rows=csv_rows)
+
+
+@router.get("/store-manager/usage-by-technician/export")
+def export_usage_by_technician(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    rows = get_stock_usage_by_technician(start_date=start_date, end_date=end_date, db=db, current_user=current_user)
+    headers = ["Technician ID", "Technician", "Total Transactions", "Total Parts Used", "Total Value"]
+    csv_rows: list[list[str]] = []
+    for r in rows:
+        csv_rows.append(
+            [
+                str(r.get("technician_id", "")),
+                str(r.get("technician_name", "")),
+                str(r.get("total_transactions", 0)),
+                str(r.get("total_parts_used", 0)),
+                str(r.get("total_value", 0)),
+            ]
+        )
+    filename = f"usage-by-technician-{(start_date or date.today()).isoformat()}-{(end_date or date.today()).isoformat()}.csv"
+    return _csv_response(filename=filename, headers=headers, rows=csv_rows)
+
+
+# ============================================
+# TECHNICIAN PERSONAL REPORTS
+# ============================================
+
+class TechnicianMyUsageResponse(BaseModel):
+    technician_id: int
+    technician_name: str
+    total_transactions: int
+    total_parts_used: int
+    total_value: float
+    parts_list: list[dict]
+
+
+@router.get("/technician/my-usage", response_model=TechnicianMyUsageResponse)
+def get_my_stock_usage(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get current technician's own stock usage - for technicians and lead technicians"""
+    # Allow technicians, lead_technicians, and managers/admins to view their own usage
+    if current_user.role not in ["technician", "lead_technician", "staff", "store_manager", "manager", "admin", "finance"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if not end_date:
+        end_date = date.today()
+    if not start_date:
+        start_date = (datetime.combine(end_date, datetime.min.time()) - timedelta(days=30)).date()
+    
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+    
+    # Get stock transactions by this technician
+    txns = db.query(StockTransaction).filter(
+        and_(
+            StockTransaction.technician_id == current_user.id,
+            StockTransaction.transaction_type == StockTransactionType.OUT,
+            StockTransaction.created_at >= start_dt,
+            StockTransaction.created_at <= end_dt
+        )
+    ).all()
+    
+    total_parts = sum(abs(int(t.quantity_delta or 0)) for t in txns)
+    total_value = sum(abs(int(t.quantity_delta or 0)) * (t.part.unit_price or 0) for t in txns if t.part)
+    
+    # Build parts list
+    parts_dict = {}
+    for t in txns:
+        if t.part_id not in parts_dict:
+            parts_dict[t.part_id] = {
+                "part_id": t.part_id,
+                "part_name": t.part.name if t.part else "Unknown",
+                "sku": t.part.sku if t.part else "Unknown",
+                "quantity": 0,
+                "value": 0
+            }
+        qty = abs(int(t.quantity_delta or 0))
+        parts_dict[t.part_id]["quantity"] += qty
+        parts_dict[t.part_id]["value"] += qty * (t.part.unit_price or 0) if t.part else 0
+    
+    return {
+        "technician_id": current_user.id,
+        "technician_name": current_user.full_name or current_user.email,
+        "total_transactions": len(txns),
+        "total_parts_used": total_parts,
+        "total_value": round(total_value, 2),
+        "parts_list": list(parts_dict.values())
+    }
+
+
+class TechnicianFrequentItemsResponse(BaseModel):
+    part_id: int
+    part_name: str
+    sku: str
+    category: str
+    usage_count: int
+    total_quantity: int
+    average_per_use: float
+
+
+@router.get("/technician/frequently-used", response_model=list[TechnicianFrequentItemsResponse])
+def get_my_frequently_used_items(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get most frequently used stock items by current technician - for technicians and lead technicians"""
+    # Allow technicians, lead_technicians, and managers/admins to view their own usage
+    if current_user.role not in ["technician", "lead_technician", "staff", "store_manager", "manager", "admin", "finance"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if not end_date:
+        end_date = date.today()
+    if not start_date:
+        start_date = (datetime.combine(end_date, datetime.min.time()) - timedelta(days=90)).date()
+    
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+    
+    # Get transaction counts by part for this technician
+    usage_stats = db.query(
+        StockTransaction.part_id,
+        func.count(StockTransaction.id).label("usage_count"),
+        func.sum(func.abs(StockTransaction.quantity_delta)).label("total_quantity")
+    ).filter(
+        and_(
+            StockTransaction.technician_id == current_user.id,
+            StockTransaction.transaction_type == StockTransactionType.OUT,
+            StockTransaction.created_at >= start_dt,
+            StockTransaction.created_at <= end_dt
+        )
+    ).group_by(StockTransaction.part_id).all()
+    
+    results = []
+    for stat in usage_stats:
+        part = db.get(Part, stat.part_id)
+        if part:
+            results.append({
+                "part_id": stat.part_id,
+                "part_name": part.name,
+                "sku": part.sku,
+                "category": part.category.name if part.category else "Uncategorized",
+                "usage_count": stat.usage_count,
+                "total_quantity": int(stat.total_quantity or 0),
+                "average_per_use": round(float(stat.total_quantity or 0) / stat.usage_count, 2) if stat.usage_count else 0
+            })
+    
+    # Sort by usage count and limit
+    results.sort(key=lambda x: x["usage_count"], reverse=True)
+    return results[:limit]
+
+
+@router.get("/technician/frequently-used/export")
+def export_my_frequently_used_items(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role not in ["technician", "lead_technician", "staff", "store_manager", "manager", "admin", "finance"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    items = get_my_frequently_used_items(start_date=start_date, end_date=end_date, limit=limit, db=db, current_user=current_user)
+    headers = ["Part ID", "SKU", "Part Name", "Category", "Usage Count", "Total Quantity", "Average Per Use"]
+    rows = [
+        [
+            str(i["part_id"]),
+            str(i["sku"]),
+            str(i["part_name"]),
+            str(i["category"]),
+            str(i["usage_count"]),
+            str(i["total_quantity"]),
+            str(i["average_per_use"]),
+        ]
+        for i in items
+    ]
+    today = date.today().isoformat()
+    return _csv_response(filename=f"my-frequently-used-{today}.csv", headers=headers, rows=rows)
+
+
+@router.get("/technician/my-stock-movement")
+def export_my_stock_movement(
+    start: Optional[date] = None,
+    end: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role not in ["technician", "lead_technician", "staff", "store_manager", "manager", "admin", "finance"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not end:
+        end = date.today()
+    if not start:
+        start = (datetime.combine(end, datetime.min.time()) - timedelta(days=30)).date()
+
+    start_dt = datetime.combine(start, datetime.min.time())
+    end_dt = datetime.combine(end, datetime.max.time())
+
+    txns = (
+        db.query(StockTransaction)
+        .filter(
+            and_(
+                StockTransaction.technician_id == current_user.id,
+                StockTransaction.created_at >= start_dt,
+                StockTransaction.created_at <= end_dt,
+            )
+        )
+        .order_by(StockTransaction.created_at.desc())
+        .all()
+    )
+
+    headers = ["Timestamp", "Transaction Type", "Movement", "Part ID", "SKU", "Part Name", "Quantity Delta", "Request ID", "Job ID", "Customer ID", "Notes"]
+    rows: list[list[str]] = []
+    for t in txns:
+        rows.append(
+            [
+                t.created_at.isoformat(sep=" ", timespec="seconds") if t.created_at else "",
+                t.transaction_type.value if t.transaction_type else "",
+                t.movement_type or "",
+                str(t.part_id),
+                t.part.sku if t.part else "",
+                t.part.name if t.part else "",
+                str(int(t.quantity_delta or 0)),
+                str(t.request_id or ""),
+                str(t.job_id or ""),
+                str(t.customer_id or ""),
+                (t.notes or "").replace("\r", " ").replace("\n", " ").strip(),
+            ]
+        )
+
+    return _csv_response(filename=f"my-stock-movement-{start.isoformat()}-{end.isoformat()}.csv", headers=headers, rows=rows)
+

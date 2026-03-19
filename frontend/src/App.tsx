@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import { Button, Grid, Layout, Space, Switch, Tooltip, Typography } from "antd";
 import { BulbOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
 import type { UserPreferences } from "./api/types";
@@ -13,6 +14,7 @@ import BrandedLoader from "./components/BrandedLoader";
 import DesktopLayout from "./layouts/DesktopLayout";
 import MobileLayout from "./layouts/MobileLayout";
 import MobileSidebar from "./components/MobileSidebar";
+import { pageVariants } from "./utils/motion";
 
 const NavBar = lazy(() => import("./components/NavBar"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
@@ -31,6 +33,8 @@ const LocationsPage = lazy(() => import("./pages/LocationsPage"));
 const RequestsPage = lazy(() => import("./pages/RequestsPage"));
 const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 const StoreManagerReportsPage = lazy(() => import("./pages/StoreManagerReportsPage"));
+const LeadTechReportsPage = lazy(() => import("./pages/LeadTechReportsPage"));
+const TechnicianReportsPage = lazy(() => import("./pages/TechnicianReportsPage"));
 const VerifyItemPage = lazy(() => import("./pages/VerifyItemPage"));
 const AdminSettingsPage = lazy(() => import("./pages/AdminSettingsPage"));
 const AuditPage = lazy(() => import("./pages/AuditPage"));
@@ -214,6 +218,14 @@ const [drawerOpen, setDrawerOpen] = useState(false);
   const headerNode = (
     <div className="app-header-inner">
       <Space className="app-header-left">
+        {showShell && isMobileViewport ? (
+          <Button
+            type="text"
+            icon={<MenuFoldOutlined />}
+            aria-label="Open navigation menu"
+            onClick={() => setDrawerOpen(true)}
+          />
+        ) : null}
         {showShell && !isMobileViewport ? (
           <Button
             type="text"
@@ -228,6 +240,8 @@ const [drawerOpen, setDrawerOpen] = useState(false);
               alt="WesternPumps logo"
               className="app-header-logo"
               onError={() => setLogoLoadFailed(true)}
+              loading="eager"
+              decoding="async"
             />
             <span>WesternPumps</span>
           </Space>
@@ -295,6 +309,8 @@ const [drawerOpen, setDrawerOpen] = useState(false);
             alt="WesternPumps logo"
             className="app-brand-logo"
             onError={() => setLogoLoadFailed(true)}
+            loading="eager"
+            decoding="async"
           />
           <Typography.Title level={5} className="app-brand" style={{ margin: 0 }}>
             {collapsed ? "WP" : "WesternPumps"}
@@ -323,8 +339,17 @@ const [drawerOpen, setDrawerOpen] = useState(false);
         </div>
       }
     >
-      <div className="route-transition" key={location.pathname}>
-        <Routes location={location}>
+      <AnimatePresence mode="wait">
+        <motion.div
+          className="route-transition"
+          key={location.pathname}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          variants={pageVariants}
+        >
+          <Routes location={location}>
+          <Route path="/" element={<Navigate to={defaultHome} replace />} />
           <Route path="/" element={<Navigate to={defaultHome} replace />} />
           <Route path="/login" element={disableAuth ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
           <Route path="/verify/:partId" element={<VerifyItemPage />} />
@@ -473,6 +498,22 @@ const [drawerOpen, setDrawerOpen] = useState(false);
             }
           />
           <Route
+            path="/lead-tech-reports"
+            element={
+              <AccessOnly page="lead_tech_reports">
+                <LeadTechReportsPage />
+              </AccessOnly>
+            }
+          />
+          <Route
+            path="/technician-reports"
+            element={
+              <AccessOnly page="technician_reports">
+                <TechnicianReportsPage />
+              </AccessOnly>
+            }
+          />
+          <Route
             path="/audit"
             element={
               <AccessOnly page="audit">
@@ -530,8 +571,9 @@ const [drawerOpen, setDrawerOpen] = useState(false);
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </div>
-    </Suspense>
+        </motion.div>
+        </AnimatePresence>
+      </Suspense>
   );
 
   const appShellClassName = [

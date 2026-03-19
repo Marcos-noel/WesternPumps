@@ -316,6 +316,18 @@ export default function ReportsPage() {
         </Card>
       </div>
 
+      <Card title="User Accounts" size="small" style={{ marginTop: 16 }}>
+        <Typography.Text type="secondary">Export all user accounts with roles and status.</Typography.Text>
+        <div style={{ marginTop: 10 }}>
+          <Button
+            type="primary"
+            onClick={() => handle("/api/users/export", "user_accounts", {})}
+          >
+            Download User Accounts
+          </Button>
+        </div>
+      </Card>
+
       {error ? <Alert type="error" message={error} showIcon /> : null}
     </div>
   );

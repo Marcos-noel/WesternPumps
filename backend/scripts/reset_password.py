@@ -10,8 +10,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 POSTGRES_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://westernpumps:JD10CKR8BvvtVGA7an6zry8IphkCtjm1@dpg-d6spqstm5p6s73b01030-a.oregon-postgres.render.com/westernpumps?sslmode=require"
+    "DATABASE_URL"
 )
 
 
@@ -19,6 +18,9 @@ def reset_password(email: str, new_password: str):
     """Reset password for a user."""
     import psycopg2
     from app.security import get_password_hash
+
+    if not POSTGRES_URL:
+        raise RuntimeError("DATABASE_URL env var is required (do not hardcode secrets in this repo).")
     
     conn = psycopg2.connect(POSTGRES_URL)
     cursor = conn.cursor()

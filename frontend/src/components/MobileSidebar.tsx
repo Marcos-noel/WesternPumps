@@ -1,6 +1,6 @@
 import { Drawer } from "antd";
-import { MenuFoldOutlined } from "@ant-design/icons";
 import NavBar from "./NavBar";
+import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 
 interface Props {
@@ -11,24 +11,28 @@ interface Props {
 export default function MobileSidebar({ open, onClose }: Props) {
   const location = useLocation();
 
+  useEffect(() => {
+    if (!open) return;
+    onClose();
+    // Close the drawer after navigation so the page is usable on mobile.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
   return (
     <>
       <Drawer
-        title={null}
+        title="Menu"
         placement="left"
-        closable={false}
+        closable
         onClose={onClose}
         open={open}
-        bodyStyle={{ padding: 0 }}
-        width={Math.min(280, window.innerWidth * 0.75)}
+        bodyStyle={{ padding: 0, overflow: "auto" }}
+        width={280}
         className="mobile-sidebar-drawer"
         style={{ position: "relative", zIndex: 1001 }}
       >
         <NavBar />
       </Drawer>
-      {open && (
-        <div className="mobile-sidebar-overlay" onClick={onClose} />
-      )}
     </>
   );
 }

@@ -1640,6 +1640,8 @@ export default function RequestsPage() {
                       <img
                         src={itemImageById.get(line.part_id) as string}
                         alt={itemNameById.get(line.part_id) ?? `Item ${line.part_id}`}
+                        loading="lazy"
+                        decoding="async"
                         style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(255,255,255,0.18)" }}
                       />
                     ) : null}

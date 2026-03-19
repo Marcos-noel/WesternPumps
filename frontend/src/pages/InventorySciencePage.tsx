@@ -3,6 +3,7 @@ import { Card, Tabs, Table, Tag, Button, Space, message, Statistic, Row, Col } f
 import { ReloadOutlined, BarChartOutlined, ExperimentOutlined, UnorderedListOutlined, SwapOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { inventoryScienceApi, type PickWave, type ReturnAuthorization, type InventoryMovementCost, type DemandForecast } from "../api/inventoryScience";
+import { formatKes } from "../utils/currency";
 
 export default function InventorySciencePage() {
   const [loading, setLoading] = useState(false);
@@ -66,8 +67,8 @@ export default function InventorySciencePage() {
     { title: "ID", dataIndex: "id", width: 60 },
     { title: "Part ID", dataIndex: "part_id" },
     { title: "Quantity", dataIndex: "quantity" },
-    { title: "Unit Cost", dataIndex: "unit_cost", render: (v) => `$${v?.toFixed(2)}` },
-    { title: "Total Cost", dataIndex: "total_cost", render: (v) => `$${v?.toFixed(2)}` },
+    { title: "Unit Cost", dataIndex: "unit_cost", render: (v) => formatKes(v) },
+    { title: "Total Cost", dataIndex: "total_cost", render: (v) => formatKes(v) },
     { title: "Method", dataIndex: "cost_method", render: (m) => <Tag>{m}</Tag> },
     { title: "Date", dataIndex: "layer_date", render: (d) => new Date(d).toLocaleDateString() },
   ];
@@ -82,31 +83,35 @@ export default function InventorySciencePage() {
   ];
 
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <h1>Inventory Science</h1>
-        <Button icon={<ReloadOutlined />} onClick={loadData} loading={loading}>
-          Refresh
-        </Button>
-      </div>
+    <div className="container page-shell">
+      <Row gutter={[12, 12]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
+        <Col xs={24} md={10}>
+          <h1 style={{ margin: 0 }}>Inventory Science</h1>
+        </Col>
+        <Col xs={24} md={14} style={{ display: "flex", justifyContent: "flex-end" }}>
+          <Button icon={<ReloadOutlined />} onClick={loadData} loading={loading}>
+            Refresh
+          </Button>
+        </Col>
+      </Row>
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic title="Pick Waves" value={pickWaves.length} prefix={<BarChartOutlined />} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic title="RMAs" value={returns.length} prefix={<SwapOutlined />} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic title="Cost Layers" value={costLayers.length} prefix={<ExperimentOutlined />} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic title="Forecasts" value={forecasts.length} prefix={<UnorderedListOutlined />} />
           </Card>
@@ -128,6 +133,7 @@ export default function InventorySciencePage() {
                   rowKey="id"
                   loading={loading}
                   pagination={{ pageSize: 10 }}
+                  scroll={{ x: "max-content" }}
                 />
               ),
             },
@@ -141,6 +147,7 @@ export default function InventorySciencePage() {
                   rowKey="id"
                   loading={loading}
                   pagination={{ pageSize: 10 }}
+                  scroll={{ x: "max-content" }}
                 />
               ),
             },
@@ -154,6 +161,7 @@ export default function InventorySciencePage() {
                   rowKey="id"
                   loading={loading}
                   pagination={{ pageSize: 10 }}
+                  scroll={{ x: "max-content" }}
                 />
               ),
             },
@@ -167,6 +175,7 @@ export default function InventorySciencePage() {
                   rowKey="id"
                   loading={loading}
                   pagination={{ pageSize: 10 }}
+                  scroll={{ x: "max-content" }}
                 />
               ),
             },

@@ -299,7 +299,7 @@ def list_pending_returns(
 @router.get(
     "/returns/mine",
     response_model=list[ReturnSubmissionRead],
-    dependencies=[Depends(require_roles("technician", "lead_technician", "staff"))],
+    dependencies=[Depends(require_roles("technician", "lead_technician", "staff", "store_manager", "manager", "approver", "finance", "admin"))],
 )
 def list_my_return_submissions(
     limit: int = Query(50, ge=1, le=200),

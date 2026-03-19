@@ -722,6 +722,8 @@ export default function JobsPage() {
                         <img
                           src={getJobPhotoUrl(detailJob.id, photo.id)}
                           alt={photo.file_name}
+                          loading="lazy"
+                          decoding="async"
                           style={{ width: "100%", height: "100%", objectFit: "cover" }}
                         />
                       </a>

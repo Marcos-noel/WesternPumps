@@ -154,6 +154,42 @@ def ensure_schema(engine: Engine) -> None:
             if "approval_notes" not in existing_columns:
                 conn.execute(text("ALTER TABLE jobs ADD COLUMN approval_notes TEXT"))
 
+        # Add missing columns for users table (region and area_code for technicians)
+        if inspector.has_table("users"):
+            user_columns = [c["name"] for c in inspector.get_columns("users")]
+            if "region" not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN region VARCHAR(100)"))
+            if "area_code" not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN area_code VARCHAR(50)"))
+
+        # Add missing columns for customers table (latitude, longitude, capacity_personnel)
+        if inspector.has_table("customers"):
+            customer_columns = [c["name"] for c in inspector.get_columns("customers")]
+            if "latitude" not in customer_columns:
+                conn.execute(text("ALTER TABLE customers ADD COLUMN latitude NUMERIC(9, 6)"))
+            if "longitude" not in customer_columns:
+                conn.execute(text("ALTER TABLE customers ADD COLUMN longitude NUMERIC(9, 6)"))
+            if "capacity_personnel" not in customer_columns:
+                conn.execute(text("ALTER TABLE customers ADD COLUMN capacity_personnel INTEGER"))
+
+        # Add missing columns for suppliers table (latitude, longitude, driver_name, capacity_personnel)
+        if inspector.has_table("suppliers"):
+            supplier_columns = [c["name"] for c in inspector.get_columns("suppliers")]
+            if "latitude" not in supplier_columns:
+                conn.execute(text("ALTER TABLE suppliers ADD COLUMN latitude NUMERIC(9, 6)"))
+            if "longitude" not in supplier_columns:
+                conn.execute(text("ALTER TABLE suppliers ADD COLUMN longitude NUMERIC(9, 6)"))
+            if "driver_name" not in supplier_columns:
+                conn.execute(text("ALTER TABLE suppliers ADD COLUMN driver_name VARCHAR(255)"))
+            if "capacity_personnel" not in supplier_columns:
+                conn.execute(text("ALTER TABLE suppliers ADD COLUMN capacity_personnel INTEGER"))
+
+        # Create technician_labor table if not exists
+        if not inspector.has_table("technician_labor"):
+            table = Base.metadata.tables.get("technician_labor")
+            if table is not None:
+                table.create(bind=engine)
+
     tenant_tables = [
         "users",
         "customers",

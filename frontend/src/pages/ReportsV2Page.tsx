@@ -103,35 +103,39 @@ export default function ReportsV2Page() {
   ];
 
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <h1>Advanced Reports</h1>
-        <Space>
-          <RangePicker onChange={handleDateChange} />
-          <Button icon={<ReloadOutlined />} onClick={loadData} loading={loading}>
-            Refresh
-          </Button>
-        </Space>
-      </div>
+    <div className="container page-shell">
+      <Row gutter={[12, 12]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
+        <Col xs={24} md={10}>
+          <h1 style={{ margin: 0 }}>Advanced Reports</h1>
+        </Col>
+        <Col xs={24} md={14} style={{ display: "flex", justifyContent: "flex-end" }}>
+          <Space wrap>
+            <RangePicker onChange={handleDateChange} />
+            <Button icon={<ReloadOutlined />} onClick={loadData} loading={loading}>
+              Refresh
+            </Button>
+          </Space>
+        </Col>
+      </Row>
 
       {activeTab === "profitability" && profitability && (
-        <Row gutter={16} style={{ marginBottom: 16 }}>
-          <Col span={6}>
+        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+          <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic title="Total Revenue" value={profitability.total_revenue} prefix={<>KSh </>} suffix={""} precision={2} />
             </Card>
           </Col>
-          <Col span={6}>
+          <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic title="Total Costs" value={profitability.total_costs} prefix={<>KSh </>} suffix={""} precision={2} />
             </Card>
           </Col>
-          <Col span={6}>
+          <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic title="Total Profit" value={profitability.total_profit} prefix={<>KSh </>} suffix={""} precision={2} valueStyle={{ color: profitability.total_profit >= 0 ? "#52c41a" : "#ff4d4f" }} />
             </Card>
           </Col>
-          <Col span={6}>
+          <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic title="Avg Margin" value={profitability.average_margin} suffix="%" precision={1} />
             </Card>
@@ -140,18 +144,18 @@ export default function ReportsV2Page() {
       )}
 
       {activeTab === "productivity" && productivity && (
-        <Row gutter={16} style={{ marginBottom: 16 }}>
-          <Col span={8}>
+        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+          <Col xs={24} md={8}>
             <Card>
               <Statistic title="Total Jobs Completed" value={productivity.total_jobs_completed} />
             </Card>
           </Col>
-          <Col span={8}>
+          <Col xs={24} md={8}>
             <Card>
               <Statistic title="Total Labor Hours" value={productivity.total_labor_hours} precision={1} />
             </Card>
           </Col>
-          <Col span={8}>
+          <Col xs={24} md={8}>
             <Card>
               <Statistic title="Avg Job Duration" value={productivity.average_job_duration} suffix="h" precision={1} />
             </Card>
@@ -160,18 +164,18 @@ export default function ReportsV2Page() {
       )}
 
       {activeTab === "valuation" && valuation && (
-        <Row gutter={16} style={{ marginBottom: 16 }}>
-          <Col span={8}>
+        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+          <Col xs={24} md={8}>
             <Card>
               <Statistic title="Total Inventory Value" value={valuation.total_inventory_value} prefix={<>KSh </>} suffix={""} precision={2} />
             </Card>
           </Col>
-          <Col span={8}>
+          <Col xs={24} md={8}>
             <Card>
               <Statistic title="Total Parts" value={valuation.total_parts} />
             </Card>
           </Col>
-          <Col span={8}>
+          <Col xs={24} md={8}>
             <Card>
               <Statistic title="Total Quantity" value={valuation.total_quantity} />
             </Card>

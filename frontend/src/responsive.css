@@ -1,0 +1,160 @@
+/*
+  Mobile-first responsiveness overrides.
+
+  Breakpoints (per requirements):
+  - Mobile:  max-width 480px
+  - Tablet:  max-width 768px
+  - Desktop: 1024px+
+*/
+
+/* Base: keep layouts fluid and prevent accidental overflow */
+html {
+  font-size: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+#root {
+  overflow-x: hidden;
+}
+
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Ensure flex/grid children can shrink instead of forcing overflow */
+.content-shell,
+.container,
+.app-header-inner,
+.app-content,
+.mobile-layout-content,
+.ant-space,
+.ant-space-item,
+.ant-row,
+.ant-col,
+.ant-card,
+.ant-card-body,
+.ant-form,
+.ant-form-item,
+.ant-table-wrapper,
+.ant-table-container {
+  min-width: 0;
+}
+
+/* Responsive tables: allow horizontal scrolling inside table wrapper only */
+.ant-table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Touch targets (mobile/tablet) */
+@media (max-width: 768px) {
+  .ant-btn,
+  .ant-input,
+  .ant-input-affix-wrapper,
+  .ant-input-password,
+  .ant-select-selector,
+  .ant-input-number,
+  .ant-picker,
+  .ant-segmented,
+  .ant-radio-button-wrapper {
+    min-height: 44px !important;
+    font-size: 1rem;
+  }
+
+  .ant-btn {
+    padding-inline: 0.875rem;
+  }
+
+  /* Mobile nav drawer should not occupy full screen width */
+  .ant-drawer.mobile-sidebar-drawer .ant-drawer-content-wrapper {
+    width: min(82vw, 320px) !important;
+  }
+
+  .mobile-sidebar-drawer .ant-drawer-body {
+    /* Keep the menu usable even with many items. */
+    max-height: calc(100dvh - 56px);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-sidebar-drawer .app-menu {
+    height: auto;
+  }
+
+  .mobile-sidebar-drawer .ant-menu-item,
+  .mobile-sidebar-drawer .ant-menu-submenu-title {
+    min-height: 44px;
+    line-height: 44px;
+  }
+}
+
+/* Mobile: stack action bars, make toolbars full width, reduce heavy motion */
+@media (max-width: 480px) {
+  html {
+    /* Slightly smaller base to fit dense UIs while still using rem-based sizing. */
+    font-size: 93.75%;
+  }
+
+  .container {
+    padding: 0.75rem;
+  }
+
+  .page-topbar,
+  .reports-toolbar .ant-space {
+    width: 100%;
+  }
+
+  .page-topbar {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-quick-actions {
+    width: 100%;
+  }
+
+  /* Force toolbar controls to be fluid even if inline styles set widths */
+  .reports-toolbar .ant-select,
+  .reports-toolbar .ant-input,
+  .reports-toolbar .ant-picker {
+    width: 100% !important;
+  }
+
+  .reports-toolbar-field {
+    width: 100%;
+  }
+
+  /* Make AntD tables readable on small screens */
+  .ant-table {
+    font-size: 0.9375rem;
+  }
+
+  /* Avoid heavy animations on mobile */
+  .content-shell,
+  .grid > * {
+    animation: none !important;
+  }
+
+  .app-shell::before,
+  .app-shell::after {
+    animation: none !important;
+  }
+}
+
+/* Desktop baseline (1024px+) keeps existing layout; overrides here stay minimal */
+@media (min-width: 1024px) {
+  html {
+    font-size: 100%;
+  }
+}

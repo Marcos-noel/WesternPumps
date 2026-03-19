@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -11,10 +11,11 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import joinedload
 
 from app.db import get_db
-from app.deps import require_roles
-from app.models import AuditLog, ItemInstance, Part, PartLocationStock, StockTransaction, UsageRecord
+from app.deps import require_roles, get_current_user
+from app.models import User, AuditLog, ItemInstance, Part, PartLocationStock, StockTransaction, UsageRecord, Job
 
 try:
     from docx import Document
@@ -259,6 +260,57 @@ def item_traceability_report(
     )
 
 
+@router.get("/jobs", dependencies=[Depends(require_roles("lead_technician", "manager", "admin", "store_manager", "finance"))])
+def jobs_report(
+    db: Session = Depends(get_db),
+    format: str = Query("csv", pattern="^(excel|pdf|docx|csv)$"),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+    status: str | None = Query(None, max_length=50),
+    assigned_to_user_id: int | None = Query(None),
+    limit: int = Query(5000, ge=1, le=10000),
+) -> Response:
+    stmt = (
+        select(Job)
+        .options(joinedload(Job.customer), joinedload(Job.assigned_to))
+        .order_by(Job.created_at.desc())
+    )
+    if start_date is not None:
+        stmt = stmt.where(Job.created_at >= datetime.combine(start_date, datetime.min.time()))
+    if end_date is not None:
+        stmt = stmt.where(Job.created_at <= datetime.combine(end_date, datetime.max.time()))
+    if status:
+        stmt = stmt.where(Job.status == status)
+    if assigned_to_user_id is not None:
+        stmt = stmt.where(Job.assigned_to_user_id == assigned_to_user_id)
+
+    jobs = db.scalars(stmt.limit(limit)).all()
+
+    headers = ["Job ID", "Title", "Status", "Priority", "Customer", "Assigned To", "Created At"]
+    rows = []
+    for j in jobs:
+        rows.append(
+            [
+                str(j.id),
+                j.title,
+                j.status,
+                j.priority,
+                j.customer.name if j.customer else "",
+                j.assigned_to.full_name or j.assigned_to.email if j.assigned_to else "",
+                j.created_at.isoformat(sep=" ", timespec="seconds") if j.created_at else "",
+            ]
+        )
+
+    basename = "jobs"
+    return _format_export(
+        fmt=format,
+        title="Jobs Report",
+        headers=headers,
+        rows=rows,
+        basename=basename,
+    )
+
+
 @router.get("/stock-movement", dependencies=[Depends(require_roles("manager", "finance", "store_manager"))])
 def stock_movement_report(
     db: Session = Depends(get_db),
@@ -305,6 +357,57 @@ def stock_movement_report(
         headers=headers,
         rows=rows,
         basename="stock-movements",
+    )
+
+
+# Technician's own stock movement - for technicians to download their own data
+@router.get("/technician/my-stock-movement")
+def technician_my_stock_movement_report(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    format: str = Query("excel", pattern="^(excel|pdf|docx|csv)$"),
+    start: datetime | None = Query(None),
+    end: datetime | None = Query(None),
+    limit: int = Query(2000, ge=1, le=20000),
+) -> Response:
+    """Get current technician's own stock movement - for technicians and lead technicians"""
+    # Allow technicians, lead_technicians, staff, and managers/admins to view their own usage
+    if current_user.role not in ["technician", "lead_technician", "staff", "store_manager", "manager", "admin", "finance"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Filter to only show current user's transactions
+    stmt = select(StockTransaction).filter(
+        StockTransaction.performed_by_user_id == current_user.id
+    ).order_by(StockTransaction.created_at.desc())
+    
+    if start:
+        stmt = stmt.where(StockTransaction.created_at >= start)
+    if end:
+        stmt = stmt.where(StockTransaction.created_at <= end)
+    
+    txs = db.scalars(stmt.limit(limit)).all()
+    headers = ["Date", "Part ID", "Part Name", "Type", "Delta", "Movement", "Request", "Created By"]
+    rows: list[list[str]] = []
+    for t in txs:
+        rows.append(
+            [
+                t.created_at.isoformat(sep=" ", timespec="seconds") if t.created_at else "",
+                str(t.part_id),
+                t.part.name if t.part else "Unknown",
+                t.transaction_type.value if t.transaction_type else "",
+                str(t.quantity_delta),
+                t.movement_type or "",
+                str(t.request_id) if t.request_id else "",
+                str(t.created_by_user_id) if t.created_by_user_id else "",
+            ]
+        )
+    
+    return _format_export(
+        fmt=format,
+        title="My Stock Movement Report",
+        headers=headers,
+        rows=rows,
+        basename="my-stock-movements",
     )
 
 

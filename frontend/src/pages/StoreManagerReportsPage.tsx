@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { Card, Table, DatePicker, Space, Typography, Row, Col, Statistic, Tag, Button } from "antd";
+import { App as AntdApp, Card, Table, DatePicker, Space, Typography, Row, Col, Statistic, Tag, Button } from "antd";
 import { DownloadOutlined } from "@ant-design/icons";
 import { getStockUsageReport, getFrequentlyUsedItems, getStockUsageByTechnician, type StockUsage, type FrequentlyUsedItem, type StockUsageByTechnician } from "../api/reportsV2";
 import { useAuth } from "../state/AuthContext";
+import { downloadReport } from "../api/reports";
+import { formatKes } from "../utils/currency";
 
 const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
 
 export default function StoreManagerReportsPage() {
+  const { message } = AntdApp.useApp();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [stockUsage, setStockUsage] = useState<StockUsage[]>([]);
@@ -58,6 +61,33 @@ export default function StoreManagerReportsPage() {
     }
   }
 
+  async function triggerDownload(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  const handleExport = async () => {
+    try {
+      const [stockBlob, frequentBlob, byTechBlob] = await Promise.all([
+        downloadReport("/api/reports/store-manager/stock-usage/export", { start_date: startDate, end_date: endDate, limit: 500 }),
+        downloadReport("/api/reports/store-manager/frequently-used/export", { start_date: startDate, end_date: endDate, limit: 200 }),
+        downloadReport("/api/reports/store-manager/usage-by-technician/export", { start_date: startDate, end_date: endDate }),
+      ]);
+      await triggerDownload(stockBlob, `stock_usage_${startDate}_${endDate}.csv`);
+      await triggerDownload(frequentBlob, `frequently_used_${startDate}_${endDate}.csv`);
+      await triggerDownload(byTechBlob, `usage_by_technician_${startDate}_${endDate}.csv`);
+    } catch (err) {
+      console.error("Export failed:", err);
+      message.error("Failed to export reports");
+    }
+  };
+
   if (!canView) {
     return (
       <Card>
@@ -71,7 +101,7 @@ export default function StoreManagerReportsPage() {
     { title: "Part Name", dataIndex: "part_name", key: "part_name" },
     { title: "Category", dataIndex: "category", key: "category" },
     { title: "Total Used", dataIndex: "total_used", key: "total_used", render: (v: number) => v.toLocaleString() },
-    { title: "Total Value", dataIndex: "total_value", key: "total_value", render: (v: number) => `$${v.toFixed(2)}` },
+    { title: "Total Value", dataIndex: "total_value", key: "total_value", render: (v: number) => formatKes(v) },
     { title: "Usage Count", dataIndex: "usage_count", key: "usage_count" },
   ];
 
@@ -88,22 +118,26 @@ export default function StoreManagerReportsPage() {
     { title: "Technician", dataIndex: "technician_name", key: "technician_name" },
     { title: "Transactions", dataIndex: "total_transactions", key: "total_transactions" },
     { title: "Parts Used", dataIndex: "total_parts_used", key: "total_parts_used" },
-    { title: "Total Value", dataIndex: "total_value", key: "total_value", render: (v: number) => `$${v.toFixed(2)}` },
+    { title: "Total Value", dataIndex: "total_value", key: "total_value", render: (v: number) => formatKes(v) },
   ];
 
   return (
-    <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 16, justifyContent: "space-between", width: "100%" }}>
-        <Title level={3}>Store Manager Reports</Title>
-        <Space>
-          <Text>Date Range:</Text>
-          <RangePicker onChange={handleDateChange} />
-          <Button icon={<DownloadOutlined />}>Export</Button>
-        </Space>
-      </Space>
+    <div className="container page-shell">
+      <Row gutter={[12, 12]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
+        <Col xs={24} md={10}>
+          <Title level={3} style={{ margin: 0 }}>Store Manager Reports</Title>
+        </Col>
+        <Col xs={24} md={14} style={{ display: "flex", justifyContent: "flex-end" }}>
+          <Space wrap>
+            <Text>Date Range:</Text>
+            <RangePicker onChange={handleDateChange} />
+            <Button icon={<DownloadOutlined />} onClick={handleExport}>Export</Button>
+          </Space>
+        </Col>
+      </Row>
 
-      <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col span={6}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 24 }}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
               title="Stock Items Used"
@@ -112,18 +146,17 @@ export default function StoreManagerReportsPage() {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
               title="Total Usage Value"
               value={stockUsage.reduce((sum, i) => sum + i.total_value, 0)}
-              prefix="$"
-              precision={2}
+              formatter={(value) => formatKes(Number(value || 0))}
               loading={loading}
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
               title="Technicians Active"
@@ -132,7 +165,7 @@ export default function StoreManagerReportsPage() {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
               title="Top Item Used"
@@ -153,13 +186,14 @@ export default function StoreManagerReportsPage() {
               loading={loading}
               pagination={{ pageSize: 10 }}
               size="small"
+              scroll={{ x: "max-content" }}
             />
           </Card>
         </Col>
       </Row>
 
       <Row gutter={16}>
-        <Col span={12}>
+        <Col xs={24} lg={12}>
           <Card title="Most Frequently Used Items" style={{ marginBottom: 16 }}>
             <Table
               dataSource={frequentItems}
@@ -168,10 +202,11 @@ export default function StoreManagerReportsPage() {
               loading={loading}
               pagination={{ pageSize: 10 }}
               size="small"
+              scroll={{ x: "max-content" }}
             />
           </Card>
         </Col>
-        <Col span={12}>
+        <Col xs={24} lg={12}>
           <Card title="Usage by Technician" style={{ marginBottom: 16 }}>
             <Table
               dataSource={usageByTech}
@@ -180,6 +215,7 @@ export default function StoreManagerReportsPage() {
               loading={loading}
               pagination={{ pageSize: 10 }}
               size="small"
+              scroll={{ x: "max-content" }}
             />
           </Card>
         </Col>

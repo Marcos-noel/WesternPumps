@@ -59,7 +59,7 @@ export async function listJobPhotos(jobId: number): Promise<JobPhoto[]> {
   return (await api.get<JobPhoto[]>(`/jobs/${jobId}/photos`)).data;
 }
 
-export async function getJobPhotoUrl(jobId: number, photoId: number): string {
+export function getJobPhotoUrl(jobId: number, photoId: number): string {
   return `${api.defaults.baseURL}/jobs/${jobId}/photos/${photoId}/download`;
 }
 

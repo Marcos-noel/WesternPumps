@@ -26,11 +26,15 @@ import {
 } from "../api/operations";
 import { listSuppliers } from "../api/suppliers";
 import type { CycleCount, ExecutiveSummary, Item, KpiSummary, Location, PurchaseOrder, ReplenishmentSuggestion, Reservation, StockTransfer, Supplier } from "../api/types";
+import { useAuth } from "../state/AuthContext";
 
 const riskColor: Record<string, string> = { CRITICAL: "red", HIGH: "volcano", MEDIUM: "gold", LOW: "green" };
 
 export default function OperationsPage() {
   const { message } = AntdApp.useApp();
+  const { user, isAdmin } = useAuth();
+  const role = (user?.role || "technician").toLowerCase();
+  const canViewExecutive = isAdmin || role === "manager" || role === "finance";
   const [loading, setLoading] = useState(true);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -65,8 +69,8 @@ export default function OperationsPage() {
         listCycleCounts(),
         getReplenishmentSuggestions(30),
         getKpiSummary(90),
-        getExecutiveSummary(7),
-        getOutboxHealth().catch(() => null),
+        canViewExecutive ? getExecutiveSummary(7) : Promise.resolve(null),
+        canViewExecutive ? getOutboxHealth().catch(() => null) : Promise.resolve(null),
       ]);
       setSuppliers(supplierRows);
       setItems(itemRows);
@@ -83,7 +87,7 @@ export default function OperationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [canViewExecutive, message]);
 
   useEffect(() => {
     void load();
@@ -194,21 +198,22 @@ export default function OperationsPage() {
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <Typography.Title level={2} style={{ marginTop: 0 }}>Operations Control Center</Typography.Title>
 
-      <Row gutter={12}>
-        <Col span={6}><Card loading={loading} title="Fill Rate">{kpi?.fill_rate_percent ?? 0}%</Card></Col>
-        <Col span={6}><Card loading={loading} title="Stockout Rate">{kpi?.stockout_rate_percent ?? 0}%</Card></Col>
-        <Col span={6}><Card loading={loading} title="Inventory Turns">{kpi?.inventory_turns_estimate ?? 0}</Card></Col>
-        <Col span={6}><Card loading={loading} title="Low Stock Items">{kpi?.low_stock_items ?? 0}</Card></Col>
+      <Row gutter={[12, 12]}>
+        <Col xs={24} sm={12} lg={6}><Card loading={loading} title="Fill Rate">{kpi?.fill_rate_percent ?? 0}%</Card></Col>
+        <Col xs={24} sm={12} lg={6}><Card loading={loading} title="Stockout Rate">{kpi?.stockout_rate_percent ?? 0}%</Card></Col>
+        <Col xs={24} sm={12} lg={6}><Card loading={loading} title="Inventory Turns">{kpi?.inventory_turns_estimate ?? 0}</Card></Col>
+        <Col xs={24} sm={12} lg={6}><Card loading={loading} title="Low Stock Items">{kpi?.low_stock_items ?? 0}</Card></Col>
       </Row>
 
-      <Row gutter={16}>
-        <Col span={16}>
+      <Row gutter={[12, 12]}>
+        <Col xs={24} lg={16}>
           <Card title="Replenishment Exceptions" loading={loading}>
             <Table
               rowKey="part_id"
               size="small"
               dataSource={suggestions}
               pagination={{ pageSize: 8 }}
+              scroll={{ x: "max-content" }}
               columns={[
                 { title: "SKU", dataIndex: "sku" },
                 { title: "Item", dataIndex: "name" },
@@ -219,20 +224,33 @@ export default function OperationsPage() {
             />
           </Card>
         </Col>
-        <Col span={8}>
+        <Col xs={24} lg={8}>
           <Card title="Executive Weekly Snapshot" loading={loading}>
-            <p>POs Created: {executive?.purchase_orders_created ?? 0}</p>
-            <p>POs Closed: {executive?.purchase_orders_closed ?? 0}</p>
-            <p>Transfers Completed: {executive?.transfer_orders_completed ?? 0}</p>
-            <p>Cycle Counts Approved: {executive?.cycle_counts_approved ?? 0}</p>
-            <p>Top Outbound: {(executive?.top_outbound_skus ?? []).join(", ") || "-"}</p>
+            {canViewExecutive ? (
+              <>
+                <p>POs Created: {executive?.purchase_orders_created ?? 0}</p>
+                <p>POs Closed: {executive?.purchase_orders_closed ?? 0}</p>
+                <p>Transfers Completed: {executive?.transfer_orders_completed ?? 0}</p>
+                <p>Cycle Counts Approved: {executive?.cycle_counts_approved ?? 0}</p>
+                <p>Top Outbound: {(executive?.top_outbound_skus ?? []).join(", ") || "-"}</p>
+              </>
+            ) : (
+              <Typography.Text type="secondary">Not available for your role.</Typography.Text>
+            )}
           </Card>
           <Card title="Integration Delivery Health" loading={loading} style={{ marginTop: 12 }}>
-            <p>Pending: {outboxHealth?.pending ?? "-"}</p>
-            <p>Failed: {outboxHealth?.failed ?? "-"}</p>
-            <p>Dead: {outboxHealth?.dead ?? "-"}</p>
+            {canViewExecutive ? (
+              <>
+                <p>Pending: {outboxHealth?.pending ?? "-"}</p>
+                <p>Failed: {outboxHealth?.failed ?? "-"}</p>
+                <p>Dead: {outboxHealth?.dead ?? "-"}</p>
+              </>
+            ) : (
+              <Typography.Text type="secondary">Not available for your role.</Typography.Text>
+            )}
             <Button
               size="small"
+              disabled={!isAdmin}
               onClick={async () => {
                 try {
                   const res = await retryDeadOutbox(100);
@@ -249,8 +267,8 @@ export default function OperationsPage() {
         </Col>
       </Row>
 
-      <Row gutter={16}>
-        <Col span={12}>
+      <Row gutter={[12, 12]}>
+        <Col xs={24} lg={12}>
           <Card title="Create Purchase Order">
             <Form layout="vertical" form={poForm} onFinish={handleCreatePO}>
               <Form.Item name="supplier_id" label="Supplier" rules={[{ required: true }]}><Select options={supplierOptions} /></Form.Item>
@@ -262,13 +280,14 @@ export default function OperationsPage() {
             </Form>
           </Card>
         </Col>
-        <Col span={12}>
+        <Col xs={24} lg={12}>
           <Card title="Purchase Orders" loading={loading}>
             <Table
               rowKey="id"
               size="small"
               dataSource={purchaseOrders}
               pagination={{ pageSize: 6 }}
+              scroll={{ x: "max-content" }}
               columns={[
                 { title: "PO", dataIndex: "id", render: (v: number) => `PO-${v}` },
                 { title: "Status", dataIndex: "status" },
@@ -289,8 +308,8 @@ export default function OperationsPage() {
         </Col>
       </Row>
 
-      <Row gutter={16}>
-        <Col span={8}>
+      <Row gutter={[12, 12]}>
+        <Col xs={24} lg={8}>
           <Card title="Create Transfer">
             <Form layout="vertical" form={transferForm} onFinish={handleCreateTransfer}>
               <Form.Item name="from_location_id" label="From" rules={[{ required: true }]}><Select options={locationOptions} /></Form.Item>
@@ -301,7 +320,7 @@ export default function OperationsPage() {
             </Form>
           </Card>
         </Col>
-        <Col span={8}>
+        <Col xs={24} lg={8}>
           <Card title="Create Cycle Count">
             <Form layout="vertical" form={cycleForm} onFinish={handleCreateCycle}>
               <Form.Item name="location_id" label="Location" rules={[{ required: true }]}><Select options={locationOptions} /></Form.Item>
@@ -310,7 +329,7 @@ export default function OperationsPage() {
             </Form>
           </Card>
         </Col>
-        <Col span={8}>
+        <Col xs={24} lg={8}>
           <Card title="Reserve Stock">
             <Form
               layout="vertical"
@@ -336,14 +355,15 @@ export default function OperationsPage() {
         </Col>
       </Row>
 
-      <Row gutter={16}>
-        <Col span={12}>
+      <Row gutter={[12, 12]}>
+        <Col xs={24} lg={12}>
           <Card title="Transfers" loading={loading}>
             <Table
               rowKey="id"
               size="small"
               dataSource={transfers}
               pagination={{ pageSize: 5 }}
+              scroll={{ x: "max-content" }}
               columns={[
                 { title: "ID", dataIndex: "id" },
                 { title: "From", dataIndex: "from_location_id" },
@@ -362,13 +382,14 @@ export default function OperationsPage() {
             />
           </Card>
         </Col>
-        <Col span={12}>
+        <Col xs={24} lg={12}>
           <Card title="Cycle Counts" loading={loading}>
             <Table
               rowKey="id"
               size="small"
               dataSource={cycleCounts}
               pagination={{ pageSize: 5 }}
+              scroll={{ x: "max-content" }}
               columns={[
                 { title: "ID", dataIndex: "id" },
                 { title: "Location", dataIndex: "location_id" },
@@ -396,6 +417,7 @@ export default function OperationsPage() {
             size="small"
             dataSource={reservations}
             pagination={false}
+            scroll={{ x: "max-content" }}
             columns={[
               { title: "Reservation", dataIndex: "id" },
               { title: "Part", dataIndex: "part_id" },

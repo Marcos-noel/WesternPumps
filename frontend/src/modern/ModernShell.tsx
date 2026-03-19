@@ -3,7 +3,7 @@ import { ActionIcon, Badge, Button, Card, Group, Text } from "@mantine/core";
 import {
   TrendingUp as ArrowTrendingUpIcon,
   Inventory as ArchiveBoxIcon,
-  Store as BuildingStorestoreIcon,
+  Store as BuildingStoreIcon,
   LightMode as SunIcon,
   DarkMode as MoonIcon,
   LocalShipping as TruckIcon,

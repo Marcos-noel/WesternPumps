@@ -1,6 +1,6 @@
 import React from "react";
 import { Alert, Card, Grid, Loader, Stack, Table, Text, Title } from "@mantine/core";
-import { ExclamationTriangle as ExclamationTriangleIcon, Inventory as CubeIcon, AttachMoney as CurrencyDollarIcon, ShoppingCart as ShoppingCartIcon } from "@mui/icons-material";
+import { WarningAmber as ExclamationTriangleIcon, Inventory as CubeIcon, AttachMoney as CurrencyDollarIcon, ShoppingCart as ShoppingCartIcon } from "@mui/icons-material";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import SummaryCard from "../SummaryCard";
 import StockPulseLottie from "../StockPulseLottie";

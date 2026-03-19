@@ -117,6 +117,15 @@ export default function NavBar() {
         canAccessPage(role, "reports_v2")
           ? { key: "/reports-v2", label: <span className="app-menu-label">Advanced Reports</span>, title: "Advanced Reports", icon: navIcon(<AnalyticsIcon />) }
           : null,
+        canAccessPage(role, "store_manager_reports")
+          ? { key: "/store-manager-reports", label: <span className="app-menu-label">Store Manager Reports</span>, title: "Store Manager Reports", icon: navIcon(<AnalyticsIcon />) }
+          : null,
+        canAccessPage(role, "lead_tech_reports")
+          ? { key: "/lead-tech-reports", label: <span className="app-menu-label">Lead Tech Reports</span>, title: "Lead Technician Reports", icon: navIcon(<AnalyticsIcon />) }
+          : null,
+        canAccessPage(role, "technician_reports")
+          ? { key: "/technician-reports", label: <span className="app-menu-label">My Reports</span>, title: "My Performance Reports", icon: navIcon(<AnalyticsIcon />) }
+          : null,
         canAccessPage(role, "audit")
           ? { key: "/audit", label: <span className="app-menu-label">Audit Log</span>, title: "Audit Log", icon: navIcon(<TimelineIcon />) }
           : null,

@@ -111,7 +111,13 @@ export default function JobPhotoUpload({ jobId, onUploadComplete }: JobPhotoUplo
           {file && (
             <div style={{ marginBottom: 16 }}>
               <p>Selected: {file.name}</p>
-              <img src={URL.createObjectURL(file)} alt="Preview" style={{ maxWidth: 200, borderRadius: 8 }} />
+              <img
+                src={URL.createObjectURL(file)}
+                alt="Preview"
+                loading="lazy"
+                decoding="async"
+                style={{ maxWidth: 200, borderRadius: 8 }}
+              />
             </div>
           )}
           <Select

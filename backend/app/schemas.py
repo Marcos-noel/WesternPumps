@@ -19,6 +19,9 @@ class UserBase(BaseModel):
     full_name: Optional[str] = None
     role: str = "technician"
     is_active: bool = True
+    # Technician-specific fields
+    region: Optional[str] = None  # Nairobi/Industrial | Nakuru | Mombasa
+    area_code: Optional[str] = None  # For site navigation
 
 
 class UserCreate(BaseModel):

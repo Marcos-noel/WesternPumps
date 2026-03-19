@@ -129,6 +129,54 @@ export async function getStockUsageByTechnician(
   return (await api.get<StockUsageByTechnician[]>(`/api/reports/store-manager/usage-by-technician?${params}`)).data;
 }
 
+// Technician Personal Reports
+export interface TechnicianMyUsage {
+  technician_id: number;
+  technician_name: string;
+  total_transactions: number;
+  total_parts_used: number;
+  total_value: number;
+  parts_list: {
+    part_id: number;
+    part_name: string;
+    sku: string;
+    quantity: number;
+    value: number;
+  }[];
+}
+
+export interface TechnicianFrequentItem {
+  part_id: number;
+  part_name: string;
+  sku: string;
+  category: string;
+  usage_count: number;
+  total_quantity: number;
+  average_per_use: number;
+}
+
+export async function getMyStockUsage(
+  startDate?: string,
+  endDate?: string
+): Promise<TechnicianMyUsage> {
+  const params = new URLSearchParams();
+  if (startDate) params.append("start_date", startDate);
+  if (endDate) params.append("end_date", endDate);
+  return (await api.get<TechnicianMyUsage>(`/api/reports/technician/my-usage?${params}`)).data;
+}
+
+export async function getMyFrequentlyUsedItems(
+  startDate?: string,
+  endDate?: string,
+  limit: number = 20
+): Promise<TechnicianFrequentItem[]> {
+  const params = new URLSearchParams();
+  if (startDate) params.append("start_date", startDate);
+  if (endDate) params.append("end_date", endDate);
+  params.append("limit", limit.toString());
+  return (await api.get<TechnicianFrequentItem[]>(`/api/reports/technician/frequently-used?${params}`)).data;
+}
+
 export interface ValuationSummary {
   total_inventory_value: number;
   total_parts: number;

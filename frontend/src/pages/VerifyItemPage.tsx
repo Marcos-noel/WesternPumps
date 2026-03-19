@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Card, Typography, Spin, Result, Button, Descriptions, Tag, QRCode } from "antd";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
+import { formatKes } from "../utils/currency";
 
 interface PartVerification {
   part_id: number;
@@ -105,7 +106,7 @@ export default function VerifyItemPage() {
             <Descriptions.Item label="Location">{data.location || "N/A"}</Descriptions.Item>
             <Descriptions.Item label="Quantity on Hand">{data.quantity_on_hand}</Descriptions.Item>
             <Descriptions.Item label="Unit Price">
-              {data.unit_price ? `$${data.unit_price.toFixed(2)}` : "N/A"}
+              {data.unit_price ? formatKes(data.unit_price) : "N/A"}
             </Descriptions.Item>
           </Descriptions>
 

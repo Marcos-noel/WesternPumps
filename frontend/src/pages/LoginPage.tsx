@@ -150,7 +150,14 @@ export default function LoginPage() {
     ) : null}
     <div className="container" style={{ maxWidth: 520 }}>
       <div className="login-brand">
-        <img src={logoSrc} alt="WesternPumps logo" className="login-brand-logo" onError={() => setLogoLoadFailed(true)} />
+        <img
+          src={logoSrc}
+          alt="WesternPumps logo"
+          className="login-brand-logo"
+          onError={() => setLogoLoadFailed(true)}
+          loading="eager"
+          decoding="async"
+        />
       </div>
       <Typography.Title level={2} style={{ marginTop: 0 }}>
         Login

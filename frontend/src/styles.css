@@ -2999,15 +2999,35 @@ code {
   border-left: 4px solid rgba(255, 107, 107, 0.95) !important;
 }
 
+.ant-message {
+  /* Ensure toast messages are always visible above headers/drawers/modals. */
+  z-index: 5000 !important;
+  top: 78px !important;
+  padding-inline: 10px;
+}
+
+@media (max-width: 768px) {
+  .ant-message {
+    top: 70px !important;
+  }
+}
+
+.ant-notification {
+  z-index: 5000 !important;
+}
+
 .ant-message .ant-message-notice-content {
   min-width: 220px;
+  max-width: min(520px, calc(100vw - 24px));
   border: 1px solid rgba(110, 193, 255, 0.2);
-  border-radius: 10px;
-  background: rgba(9, 23, 40, 0.9);
+  border-radius: 14px;
+  background: rgba(9, 23, 40, 0.94);
   color: var(--text-1);
-  box-shadow: 0 8px 20px rgba(4, 11, 22, 0.3);
-  padding: 8px 12px !important;
+  box-shadow: 0 16px 40px rgba(4, 11, 22, 0.38);
+  padding: 10px 14px !important;
   animation: toastIn 140ms ease-out;
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
 }
 
 :root[data-theme="light"] .ant-message .ant-message-notice-content {
@@ -3038,6 +3058,7 @@ code {
   align-items: center;
   gap: 10px;
   font-weight: 500;
+  line-height: 1.25;
 }
 
 .ant-message .ant-message-success .anticon {

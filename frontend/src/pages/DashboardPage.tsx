@@ -808,7 +808,7 @@ export default function DashboardPage() {
             {qrError ? <Typography.Text type="danger">{qrError}</Typography.Text> : null}
             <div className="qr-preview">
               {qrSvg ? (
-                <img src={qrDataUrl} alt="QR code" />
+                <img src={qrDataUrl} alt="QR code" loading="lazy" decoding="async" />
               ) : (
                 <Typography.Text type="secondary">QR code preview appears here.</Typography.Text>
               )}

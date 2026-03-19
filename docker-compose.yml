@@ -1,16 +1,15 @@
 services:
   db:
-    image: mysql:8.0
+    image: postgres:15-alpine
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-westernpumps}
-      MYSQL_USER: ${MYSQL_USER:-westernpumps}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-westernpumps}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      POSTGRES_DB: ${POSTGRES_DB:-westernpumps}
+      POSTGRES_USER: ${POSTGRES_USER:-westernpumps}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-westernpumps}
     ports:
-      - "3306:3306"
+      - "5432:5432"
     volumes:
-      - westernpumps_mysql:/var/lib/mysql
+      - westernpumps_postgres:/var/lib/postgresql/data
 
   backend:
     build: ./backend
@@ -18,7 +17,7 @@ services:
     depends_on:
       - db
     environment:
-      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-westernpumps}:${MYSQL_PASSWORD:-westernpumps}@db:3306/${MYSQL_DATABASE:-westernpumps}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-westernpumps}:${POSTGRES_PASSWORD:-westernpumps}@db:5432/${POSTGRES_DB:-westernpumps}
       JWT_SECRET: ${JWT_SECRET:-change-me}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
@@ -45,4 +44,4 @@ services:
     command: npm run dev -- --host 0.0.0.0 --port 5173
 
 volumes:
-  westernpumps_mysql:
+  westernpumps_postgres:

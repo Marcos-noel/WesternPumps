@@ -509,6 +509,8 @@ export default function InventoryPage() {
             <img
               src={item.image_url}
               alt={item.name}
+              loading="lazy"
+              decoding="async"
               style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(255,255,255,0.18)" }}
             />
           ) : (
@@ -1729,6 +1731,8 @@ export default function InventoryPage() {
                   <img
                     src={imageUrl}
                     alt={name || "Item preview"}
+                    loading="lazy"
+                    decoding="async"
                     style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid rgba(255,255,255,0.18)" }}
                   />
                 </div>
@@ -2379,7 +2383,13 @@ export default function InventoryPage() {
             {qrSvg ? (
               <div style={{ marginTop: 12 }}>
                 <Card style={{ display: "flex", justifyContent: "center" }}>
-                  <img src={qrDataUrl} alt={`QR for ${qrItem.sku}`} style={{ width: 220, height: 220 }} />
+                  <img
+                    src={qrDataUrl}
+                    alt={`QR for ${qrItem.sku}`}
+                    loading="lazy"
+                    decoding="async"
+                    style={{ width: 220, height: 220 }}
+                  />
                 </Card>
                 <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>
                   Encoded value: <strong>{qrText}</strong>
@@ -2437,6 +2447,8 @@ export default function InventoryPage() {
                   <img
                     src={instanceQrDataUrl}
                     alt={`QR for ${instanceQr.instance.serial_number}`}
+                    loading="lazy"
+                    decoding="async"
                     style={{ width: 220, height: 220 }}
                   />
                 </Card>

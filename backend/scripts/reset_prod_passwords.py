@@ -1,18 +1,33 @@
+import argparse
 import os
+
 from sqlalchemy import create_engine, text
-from passlib.context import CryptContext
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+from app.security import get_password_hash
 
-DB_URL = "postgresql://marcos_noel23:xwszqrbJEzg3EMfZ3jp3xiknFzJ5Pidi@dpg-d6spqstm5p6s73b01030-a.oregon-postgres.render.com/westernpumps?sslmode=require"
 
-NEW_PW = "test123"
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Reset all user passwords for a tenant. Requires DATABASE_URL env var."
+    )
+    parser.add_argument("--tenant-id", type=int, default=1)
+    parser.add_argument("--new-password", required=True)
+    args = parser.parse_args()
 
-hashed = pwd_context.hash(NEW_PW.encode('utf-8').decode('utf-8')[:72])
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise SystemExit("DATABASE_URL is required (do not hardcode secrets in this repo).")
 
-engine = create_engine(DB_URL)
+    hashed = get_password_hash(args.new_password)
+    engine = create_engine(db_url)
 
-with engine.begin() as conn:
-    result = conn.execute(text("UPDATE users SET password_hash = :pwd WHERE tenant_id = 1"), {"pwd": hashed})
-    print(f"Updated {result.rowcount} users")
-    print("New password for ALL users: " + NEW_PW)
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("UPDATE users SET password_hash = :pwd WHERE tenant_id = :tenant_id"),
+            {"pwd": hashed, "tenant_id": args.tenant_id},
+        )
+        print(f"Updated {result.rowcount} users for tenant_id={args.tenant_id}")
+
+
+if __name__ == "__main__":
+    main()
