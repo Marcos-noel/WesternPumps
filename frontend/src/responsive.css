@@ -158,3 +158,344 @@ svg {
     font-size: 100%;
   }
 }
+
+/* ============================================
+   Mobile-First Alert Notifications CSS
+   Supports viewport widths: 320px - 480px+
+   ============================================ */
+
+/* Base alert container - ensures alerts stay within viewport */
+.ant-notification {
+  pointer-events: auto;
+}
+
+/* Mobile notification container adjustments */
+@media (max-width: 480px) {
+  /* Notification container positioning for mobile */
+  .ant-notification {
+    top: 12px !important;
+    right: 12px !important;
+    left: 12px !important;
+    width: auto !important;
+    max-width: calc(100vw - 24px) !important;
+    padding: 0 !important;
+  }
+
+  /* Notification notice card */
+  .ant-notification-notice {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25) !important;
+    animation: mobileAlertSlideIn 300ms ease-out forwards;
+  }
+
+  /* Lux notification base */
+  .lux-notification .ant-notification-notice {
+    padding: 14px 16px !important;
+  }
+
+  /* Notification message text */
+  .ant-notification-notice-message {
+    font-size: 1rem !important;
+    line-height: 1.4 !important;
+    margin-bottom: 6px !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+  }
+
+  /* Notification description */
+  .ant-notification-notice-description {
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    max-height: 80px !important;
+    overflow-y: auto !important;
+  }
+
+  /* Close button - touch-friendly sizing */
+  .ant-notification-notice-close {
+    position: absolute !important;
+    top: 10px !important;
+    right: 10px !important;
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 8px !important;
+    transition: background-color 150ms ease !important;
+    cursor: pointer !important;
+  }
+
+  .ant-notification-notice-close:hover {
+    background-color: rgba(0, 0, 0, 0.08) !important;
+  }
+
+  .ant-notification-notice-close:active {
+    background-color: rgba(0, 0, 0, 0.15) !important;
+  }
+
+  .ant-notification-notice-close-x {
+    width: 16px !important;
+    height: 16px !important;
+    font-size: 14px !important;
+    line-height: 1 !important;
+  }
+
+  /* Alert type visual distinctions - Success */
+  .ant-notification-notice-success {
+    border-left: 4px solid #0d9f58 !important;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(240, 255, 245, 0.95)) !important;
+  }
+
+  :root[data-theme="dark"] .ant-notification-notice-success {
+    border-left-color: rgba(103, 231, 198, 0.95) !important;
+    background: linear-gradient(135deg, rgba(30, 45, 60, 0.98), rgba(25, 55, 45, 0.95)) !important;
+  }
+
+  /* Alert type visual distinctions - Warning */
+  .ant-notification-notice-warning {
+    border-left: 4px solid #d97706 !important;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 250, 240, 0.95)) !important;
+  }
+
+  :root[data-theme="dark"] .ant-notification-notice-warning {
+    border-left-color: rgba(241, 204, 107, 0.95) !important;
+    background: linear-gradient(135deg, rgba(45, 40, 30, 0.98), rgba(50, 45, 30, 0.95)) !important;
+  }
+
+  /* Alert type visual distinctions - Error */
+  .ant-notification-notice-error {
+    border-left: 4px solid #dc2626 !important;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 245, 245, 0.95)) !important;
+  }
+
+  :root[data-theme="dark"] .ant-notification-notice-error {
+    border-left-color: rgba(255, 107, 107, 0.95) !important;
+    background: linear-gradient(135deg, rgba(45, 30, 30, 0.98), rgba(55, 30, 30, 0.95)) !important;
+  }
+
+  /* Alert type visual distinctions - Info */
+  .ant-notification-notice-info {
+    border-left: 4px solid #1877d9 !important;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(240, 248, 255, 0.95)) !important;
+  }
+
+  :root[data-theme="dark"] .ant-notification-notice-info {
+    border-left-color: rgba(110, 193, 255, 0.95) !important;
+    background: linear-gradient(135deg, rgba(30, 45, 60, 0.98), rgba(25, 40, 60, 0.95)) !important;
+  }
+
+  /* Message toast adjustments for mobile */
+  .ant-message {
+    top: 70px !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    max-width: calc(100vw - 24px) !important;
+  }
+
+  .ant-message-notice {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .ant-message .ant-message-notice-content {
+    min-width: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 12px 14px !important;
+    font-size: 0.9375rem !important;
+    border-radius: 10px !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2) !important;
+    animation: mobileToastSlideIn 250ms ease-out forwards;
+  }
+
+  /* Notification popover mobile adjustments */
+  .notification-popover {
+    width: calc(100vw - 32px) !important;
+    max-width: 320px !important;
+  }
+
+  .notification-popover-head {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 12px 14px !important;
+    border-bottom: 1px solid rgba(110, 193, 255, 0.12) !important;
+  }
+
+  .notification-popover-head .ant-typography {
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+  }
+
+  .notification-item {
+    padding: 12px 14px !important;
+    min-height: 60px !important;
+    cursor: pointer !important;
+    transition: background-color 150ms ease !important;
+  }
+
+  .notification-item:active {
+    background-color: rgba(110, 193, 255, 0.1) !important;
+  }
+
+  .notification-sub {
+    font-size: 0.8125rem !important;
+    line-height: 1.4 !important;
+    margin-top: 4px !important;
+  }
+
+  .notification-time {
+    font-size: 0.6875rem !important;
+    margin-top: 4px !important;
+  }
+
+  /* Ensure close button has proper contrast and is accessible */
+  .ant-notification-notice-close {
+    color: rgba(0, 0, 0, 0.55) !important;
+    background-color: transparent !important;
+  }
+
+  .ant-notification-notice-close:hover {
+    color: rgba(0, 0, 0, 0.85) !important;
+  }
+
+  :root[data-theme="dark"] .ant-notification-notice-close {
+    color: rgba(255, 255, 255, 0.55) !important;
+  }
+
+  :root[data-theme="dark"] .ant-notification-notice-close:hover {
+    color: rgba(255, 255, 255, 0.85) !important;
+  }
+
+  /* Accessibility: Focus visible for keyboard navigation */
+  .ant-notification-notice-close:focus-visible,
+  .ant-notification-notice-close:focus {
+    outline: 2px solid #1877d9 !important;
+    outline-offset: 2px !important;
+  }
+
+  :root[data-theme="dark"] .ant-notification-notice-close:focus-visible,
+  :root[data-theme="dark"] .ant-notification-notice-close:focus {
+    outline-color: rgba(110, 193, 255, 0.8) !important;
+  }
+}
+
+/* Tablet adjustments (481px - 768px) */
+@media (min-width: 481px) and (max-width: 768px) {
+  .ant-notification {
+    top: 16px !important;
+    right: 16px !important;
+    max-width: calc(100vw - 32px) !important;
+  }
+
+  .ant-notification-notice {
+    max-width: 400px !important;
+  }
+
+  .ant-message {
+    top: 70px !important;
+  }
+}
+
+/* Smooth entrance animation for mobile alerts */
+@keyframes mobileAlertSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Smooth entrance animation for mobile toasts */
+@keyframes mobileToastSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Reduced motion preference for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  .ant-notification-notice,
+  .ant-message .ant-message-notice-content {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .ant-notification-notice-close {
+    transition: none !important;
+  }
+}
+
+/* Notification Bar Popover mobile adjustments */
+@media (max-width: 480px) {
+  /* Notification bell button touch target */
+  .ant-popover-trigger .ant-btn {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  /* Ensure popover doesn't overflow screen */
+  .ant-popover.mobile-notification-popover .ant-popover-inner {
+    max-height: calc(100dvh - 120px) !important;
+    overflow-y: auto !important;
+  }
+
+  /* Notification list item improvements */
+  .notification-popover .ant-list-item {
+    padding: 14px !important;
+    min-height: 70px !important;
+  }
+
+  /* Mark read button on mobile */
+  .notification-popover-head .ant-btn-link {
+    padding: 8px 12px !important;
+    min-height: 36px !important;
+    font-size: 0.875rem !important;
+  }
+}
+
+/* High contrast mode support for accessibility */
+@media (prefers-contrast: high) {
+  .ant-notification-notice {
+    border: 2px solid currentColor !important;
+  }
+
+  .ant-notification-notice-success {
+    border-left-width: 6px !important;
+  }
+
+  .ant-notification-notice-warning {
+    border-left-width: 6px !important;
+  }
+
+  .ant-notification-notice-error {
+    border-left-width: 6px !important;
+  }
+
+  .ant-notification-notice-info {
+    border-left-width: 6px !important;
+  }
+
+  .ant-notification-notice-close {
+    border: 1px solid currentColor !important;
+  }
+}

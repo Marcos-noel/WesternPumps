@@ -50,7 +50,12 @@ export default function NotificationBar() {
   );
 
   return (
-    <Popover trigger="click" placement="bottomRight" content={content}>
+    <Popover 
+      trigger="click" 
+      placement="bottomRight" 
+      content={content}
+      overlayClassName="mobile-notification-popover"
+    >
       <Badge count={unreadCount} size="small">
         <Button
           type="text"
