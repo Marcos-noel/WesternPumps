@@ -467,7 +467,7 @@ export default function DashboardPage() {
         : "A real-time snapshot of inventory, usage, and financial signals.";
 
   return (
-    <div className="container dashboard page-shell">
+    <div className="container dashboard page-shell" data-role={role}>
       <div className="dashboard-header page-topbar">
         <div className="page-heading">
           <Typography.Title level={2} style={{ marginTop: 0 }}>

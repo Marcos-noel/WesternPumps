@@ -317,9 +317,9 @@ svg {
 
   /* Notification popover mobile adjustments */
   .notification-popover {
-    width: calc(100vw - 32px) !important;
-    max-width: calc(100vw - 32px) !important;
-    left: 16px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    left: auto !important;
     right: auto !important;
   }
 
@@ -341,8 +341,8 @@ svg {
   /* Prevent overflow on mobile */
   .notification-popover-root.ant-popover {
     max-width: calc(100vw - 20px) !important;
-    left: 10px !important;
-    right: 10px !important;
+    left: auto !important;
+    right: auto !important;
   }
 
   .notification-popover-head {
@@ -494,7 +494,7 @@ svg {
   /* Ensure notification content respects rounded corners */
   .mobile-notification-popover .notification-popover {
     border-radius: 16px !important;
-    overflow: hidden !important;
+    overflow: auto !important;
     width: 100% !important;
     max-width: 100% !important;
     left: auto !important;

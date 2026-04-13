@@ -1230,6 +1230,30 @@ a {
   padding: clamp(16px, 1.9vw, 24px);
 }
 
+.ant-card .ant-card-body > * {
+  min-width: 0;
+}
+
+.ant-card .ant-typography,
+.ant-card .ant-statistic-title,
+.ant-card .ant-statistic-content,
+.ant-card .ant-statistic-content-value,
+.ant-card .ant-statistic-content-prefix,
+.ant-card .ant-statistic-content-suffix,
+.ant-card .ant-tag {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ant-card .ant-statistic-content {
+  line-height: 1.15;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: baseline;
+}
+
 .ant-card-head {
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface-glass-strong) 84%, var(--card-head-bg));
@@ -1623,6 +1647,9 @@ code {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  --dashboard-stat-cols: 3;
+  --dashboard-priority-cols: 2;
+  --dashboard-secondary-cols: 2;
 }
 
 .dashboard-header {
@@ -1634,14 +1661,14 @@ code {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(var(--dashboard-stat-cols), minmax(0, 1fr));
   gap: 16px;
   order: 1;
 }
 
 .dashboard-priority-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(var(--dashboard-priority-cols), minmax(0, 1fr));
   gap: 16px;
   order: 3;
 }
@@ -1713,9 +1740,49 @@ code {
 
 .dashboard-columns {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(var(--dashboard-secondary-cols), minmax(0, 1fr));
   gap: 18px;
   order: 5;
+}
+
+.dashboard[data-role="admin"],
+.dashboard[data-role="manager"] {
+  --dashboard-stat-cols: 4;
+  --dashboard-priority-cols: 2;
+  --dashboard-secondary-cols: 2;
+}
+
+.dashboard[data-role="store_manager"] {
+  --dashboard-stat-cols: 3;
+  --dashboard-priority-cols: 2;
+  --dashboard-secondary-cols: 2;
+}
+
+.dashboard[data-role="approver"] {
+  --dashboard-stat-cols: 3;
+  --dashboard-priority-cols: 2;
+  --dashboard-secondary-cols: 2;
+}
+
+.dashboard[data-role="lead_technician"] {
+  --dashboard-stat-cols: 2;
+  --dashboard-priority-cols: 2;
+  --dashboard-secondary-cols: 1;
+}
+
+.dashboard[data-role="technician"],
+.dashboard[data-role="staff"] {
+  --dashboard-stat-cols: 2;
+  --dashboard-priority-cols: 1;
+  --dashboard-secondary-cols: 1;
+}
+
+.dashboard[data-role="finance"],
+.dashboard[data-role="driver"],
+.dashboard[data-role="rider"] {
+  --dashboard-stat-cols: 2;
+  --dashboard-priority-cols: 1;
+  --dashboard-secondary-cols: 1;
 }
 
 .approval-queue-card .ant-card-body {
@@ -2530,6 +2597,7 @@ code {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px 12px;
   border-radius: var(--radius-md);
@@ -2573,6 +2641,8 @@ code {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  margin-left: auto;
+  max-width: 100%;
 }
 
 .activity-qty {
@@ -2818,8 +2888,8 @@ code {
 }
 
 .notification-popover {
-  width: min(92vw, 360px);
-  max-height: 60vh;
+  width: min(92vw, 420px);
+  max-height: min(72vh, 640px);
   overflow: auto;
   border-radius: 14px;
   background: linear-gradient(160deg, rgba(12, 28, 46, 0.96), rgba(10, 23, 40, 0.9));
@@ -2843,6 +2913,8 @@ code {
 /* Ensure notification popover stays within viewport */
 .notification-popover-root .ant-popover-inner-content {
   max-width: calc(100vw - 32px) !important;
+  max-height: min(72vh, 640px);
+  overflow: auto;
 }
 
 /* Prevent popover from going off-screen on left side */
@@ -2988,6 +3060,8 @@ code {
   backdrop-filter: blur(6px);
   animation: toastIn 140ms ease-out;
   padding-inline-start: 2px;
+  width: min(460px, calc(100vw - 24px));
+  max-width: min(460px, calc(100vw - 24px));
 }
 
 .lux-notification .ant-notification-notice-message {
@@ -3000,6 +3074,9 @@ code {
   color: var(--text-2);
   font-size: 0.8rem;
   margin-top: 2px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 :root[data-theme="light"] .lux-notification .ant-notification-notice-description {
@@ -3087,6 +3164,9 @@ code {
   animation: toastIn 140ms ease-out;
   backdrop-filter: blur(18px) saturate(1.2);
   -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 :root[data-theme="light"] .ant-message .ant-message-notice-content {
@@ -3191,6 +3271,8 @@ code {
 
 .data-title {
   font-weight: 600;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .data-sub {
@@ -3215,6 +3297,9 @@ code {
 .data-value {
   text-align: right;
   font-weight: 600;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .qr-preview {
@@ -3239,6 +3324,12 @@ code {
   gap: 12px;
   padding-top: 12px;
   border-top: 1px solid rgba(110, 193, 255, 0.16);
+}
+
+@media (max-width: 900px) {
+  .report-summary {
+    grid-template-columns: 1fr;
+  }
 }
 
 .reports-stack {
@@ -3325,17 +3416,12 @@ code {
   line-height: 1.2;
   white-space: normal;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 @media (max-width: 1200px) {
-  .dashboard-priority-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .dashboard-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
+  .dashboard-grid,
+  .dashboard-priority-grid,
   .dashboard-columns {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

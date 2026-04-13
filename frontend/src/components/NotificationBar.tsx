@@ -55,7 +55,6 @@ export default function NotificationBar() {
         trigger="click" 
         placement="bottomRight" 
         content={content}
-        getPopupContainer={(node) => node.parentElement || document.body}
         overlayClassName="mobile-notification-popover"
         rootClassName="notification-popover-root"
         autoAdjustOverflow
