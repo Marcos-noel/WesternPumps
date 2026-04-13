@@ -534,13 +534,13 @@ a {
   min-width: 0;
   max-width: 56vw;
   flex-wrap: nowrap;
-  overflow: hidden;
+  overflow: visible;
   gap: 8px !important;
 }
 
 .app-header-tool {
-  min-width: 0;
-  flex: 0 1 auto;
+  min-width: auto;
+  flex: 0 0 auto;
 }
 
 .app-user-label {
@@ -996,7 +996,8 @@ a {
 
 @media (max-width: 560px) {
   .app-header-actions {
-    max-width: 72vw;
+    max-width: none;
+    overflow: visible;
   }
 
   /* Keep notification bell visible on mobile */
@@ -2796,6 +2797,26 @@ code {
   color: #dc2626 !important;
 }
 
+/* Notification Wrapper - relative container for proper positioning */
+.notification-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Notification button styling */
+.notification-btn {
+  position: relative;
+}
+
+/* Notification card - using user's specified styles */
+.notification-card {
+  position: static;
+  width: 100%;
+  max-width: 100%;
+  z-index: auto;
+}
+
 .notification-popover {
   width: min(92vw, 360px);
   max-height: 60vh;
@@ -2804,6 +2825,44 @@ code {
   background: linear-gradient(160deg, rgba(12, 28, 46, 0.96), rgba(10, 23, 40, 0.9));
   box-shadow: var(--lux-glow);
   padding: 8px;
+  /* Smooth open/close animation */
+  animation: notificationFadeIn 0.2s ease-out;
+}
+
+@keyframes notificationFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Ensure notification popover stays within viewport */
+.notification-popover-root .ant-popover-inner-content {
+  max-width: calc(100vw - 32px) !important;
+}
+
+/* Prevent popover from going off-screen on left side */
+.notification-popover-root.ant-popover {
+  max-width: calc(100vw - 32px) !important;
+}
+
+/* Ensure popover is properly anchored */
+.notification-popover-root {
+  z-index: 1050;
+}
+
+.notification-popover-root .ant-popover-inner {
+  padding: 0;
+}
+
+@media (min-width: 768px) {
+  .notification-popover-root .ant-popover-inner-content {
+    max-width: 380px !important;
+  }
 }
 
 .recent-activity-popover {
@@ -3497,7 +3556,8 @@ code {
   }
 
   .app-header-actions {
-    max-width: 42vw;
+    max-width: 52vw;
+    overflow: visible;
     gap: 6px !important;
   }
 

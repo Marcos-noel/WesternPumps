@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, Tabs, Table, Button, Space, DatePicker, Row, Col, Statistic, Tag, App } from "antd";
 import { ReloadOutlined, DollarOutlined, TeamOutlined, InboxOutlined, DownloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { reportsV2Api, type ProfitabilitySummary, type JobProfitability, type ProductivitySummary, type ProductivityMetrics, type ValuationSummary, type InventoryValuation } from "../api/reportsV2";
 import { formatKes } from "../utils/currency";
 
@@ -22,6 +23,48 @@ export default function ReportsV2Page() {
   useEffect(() => {
     loadData();
   }, [activeTab, dateRange]);
+
+  const profitabilityChartData = useMemo(
+    () =>
+      profitabilityDetails
+        .slice()
+        .sort((a, b) => Math.abs(b.revenue || 0) - Math.abs(a.revenue || 0))
+        .slice(0, 8)
+        .map((row) => ({
+          label: `#${row.job_id}`,
+          revenue: Number(row.revenue || 0),
+          cost: Number(row.total_cost || 0),
+          profit: Number(row.profit || 0),
+        })),
+    [profitabilityDetails]
+  );
+
+  const productivityChartData = useMemo(
+    () =>
+      productivityDetails
+        .slice()
+        .sort((a, b) => (b.jobs_completed || 0) - (a.jobs_completed || 0))
+        .slice(0, 8)
+        .map((row) => ({
+          label: row.technician_name || `Tech ${row.technician_id}`,
+          completed: Number(row.jobs_completed || 0),
+          inProgress: Number(row.jobs_in_progress || 0),
+          hours: Number(row.total_labor_hours || 0),
+        })),
+    [productivityDetails]
+  );
+
+  const valuationChartData = useMemo(
+    () =>
+      Object.entries(valuation?.value_by_category ?? {})
+        .map(([category, value]) => ({
+          label: category || "Uncategorized",
+          value: Number(value || 0),
+        }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 8),
+    [valuation]
+  );
 
   const loadData = async () => {
     setLoading(true);
@@ -140,6 +183,24 @@ export default function ReportsV2Page() {
               <Statistic title="Avg Margin" value={profitability.average_margin} suffix="%" precision={1} />
             </Card>
           </Col>
+          <Col xs={24}>
+            <Card title="Revenue vs Cost vs Profit">
+              <div style={{ height: 280 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={profitabilityChartData} margin={{ top: 8, right: 24, left: 4, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="revenue" name="Revenue" fill="#22c55e" />
+                    <Bar dataKey="cost" name="Cost" fill="#f59e0b" />
+                    <Bar dataKey="profit" name="Profit" fill="#3b82f6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+          </Col>
         </Row>
       )}
 
@@ -160,6 +221,24 @@ export default function ReportsV2Page() {
               <Statistic title="Avg Job Duration" value={productivity.average_job_duration} suffix="h" precision={1} />
             </Card>
           </Col>
+          <Col xs={24}>
+            <Card title="Technician Workload Comparison">
+              <div style={{ height: 280 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={productivityChartData} margin={{ top: 8, right: 24, left: 4, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="completed" name="Completed Jobs" fill="#3b82f6" />
+                    <Bar dataKey="inProgress" name="In Progress" fill="#f59e0b" />
+                    <Bar dataKey="hours" name="Labor Hours" fill="#22c55e" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+          </Col>
         </Row>
       )}
 
@@ -178,6 +257,22 @@ export default function ReportsV2Page() {
           <Col xs={24} md={8}>
             <Card>
               <Statistic title="Total Quantity" value={valuation.total_quantity} />
+            </Card>
+          </Col>
+          <Col xs={24}>
+            <Card title="Inventory Value by Category">
+              <div style={{ height: 280 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={valuationChartData} margin={{ top: 8, right: 24, left: 4, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" />
+                    <YAxis />
+                    <Tooltip formatter={(value) => formatKes(Number(value || 0))} />
+                    <Legend />
+                    <Bar dataKey="value" name="Value" fill="#8b5cf6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </Card>
           </Col>
         </Row>

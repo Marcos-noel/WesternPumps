@@ -108,6 +108,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const role = user?.role ?? "technician";
+  const isManagerRole = useMemo(() => role === "admin" || role === "manager", [role]);
   const isApprover = useMemo(() => ["admin", "manager", "approver"].includes(role), [role]);
   const isStoreManager = useMemo(() => role === "store_manager" || role === "admin" || role === "manager", [role]);
   const isTechRole = useMemo(() => ["technician", "lead_technician", "staff"].includes(role), [role]);
@@ -117,6 +118,11 @@ export default function DashboardPage() {
   const canOpenRequests = canAccessPage(role, "requests");
   const canOpenInventory = canAccessPage(role, "inventory");
   const canOpenApprovals = canAccessPage(role, "approvals");
+  const canOpenReports = canAccessPage(role, "reports");
+  const canOpenAdvancedReports = canAccessPage(role, "reports_v2");
+  const canOpenStoreManagerReports = canAccessPage(role, "store_manager_reports");
+  const canOpenLeadTechReports = canAccessPage(role, "lead_tech_reports");
+  const canOpenTechnicianReports = canAccessPage(role, "technician_reports");
 
   const [items, setItems] = useState<Item[]>([]);
   const [itemTotal, setItemTotal] = useState(0);
@@ -269,6 +275,22 @@ export default function DashboardPage() {
       ).length,
     [myAssignedJobs]
   );
+  const pendingJobsCount = useMemo(
+    () => jobs.filter((job) => (job.status || "").toLowerCase() === "pending_approval").length,
+    [jobs]
+  );
+  const activeJobsCount = useMemo(
+    () =>
+      jobs.filter((job) => {
+        const status = (job.status || "").toLowerCase();
+        return status !== "completed" && status !== "canceled";
+      }).length,
+    [jobs]
+  );
+  const criticalLowStockCount = useMemo(
+    () => lowStockItems.filter((item) => item.quantity_on_hand <= Math.max(0, Math.floor(item.min_quantity * 0.5))).length,
+    [lowStockItems]
+  );
 
   const lifecycleRows = useMemo(() => {
     const scopeRows =
@@ -413,6 +435,36 @@ export default function DashboardPage() {
     { value: 90, label: "Last 90 days" }
   ];
   const showPriorityCards = isApprover || isTechRole || isStoreManager;
+  const primaryReportPath = useMemo(() => {
+    if (canOpenAdvancedReports) return "/reports-v2";
+    if (canOpenStoreManagerReports) return "/store-manager-reports";
+    if (canOpenLeadTechReports) return "/lead-tech-reports";
+    if (canOpenTechnicianReports) return "/technician-reports";
+    if (canOpenReports) return "/reports";
+    return "";
+  }, [canOpenAdvancedReports, canOpenLeadTechReports, canOpenReports, canOpenStoreManagerReports, canOpenTechnicianReports]);
+
+  const quickActionButtons = useMemo(() => {
+    const actions: Array<{ key: string; label: string; enabled: boolean }> = [
+      { key: "approvals", label: "Approvals", enabled: canOpenApprovals },
+      { key: "jobs", label: "Jobs", enabled: canAccessPage(role, "jobs") },
+      { key: "requests", label: "Requests", enabled: canOpenRequests },
+      { key: "inventory", label: "Inventory", enabled: canOpenInventory },
+      { key: primaryReportPath.replace("/", ""), label: "Reports", enabled: Boolean(primaryReportPath) },
+    ];
+    if (!isManagerRole && !isApprover) {
+      actions.sort((a, b) => (a.key === "jobs" ? -1 : b.key === "jobs" ? 1 : 0));
+    }
+    return actions.filter((action) => action.enabled);
+  }, [canOpenApprovals, canOpenInventory, canOpenRequests, isApprover, isManagerRole, primaryReportPath, role]);
+
+  const dashboardSubtitle = isManagerRole
+    ? "Priority-first view for approvals, stock risk, and operational throughput."
+    : isStoreManager
+      ? "Inventory and request actions first, with trend visibility for rapid decisions."
+      : isTechRole
+        ? "Assigned jobs and stock lifecycle activity prioritized for daily execution."
+        : "A real-time snapshot of inventory, usage, and financial signals.";
 
   return (
     <div className="container dashboard page-shell">
@@ -422,13 +474,15 @@ export default function DashboardPage() {
             Operations Dashboard
           </Typography.Title>
           <Typography.Text type="secondary" className="page-subtitle">
-            A real-time snapshot of inventory, usage, and financial signals.
+            {dashboardSubtitle}
           </Typography.Text>
         </div>
         <Space wrap className="page-quick-actions">
-          {canOpenRequests ? <Button onClick={() => navigate("/requests")}>Requests</Button> : null}
-          {canOpenInventory ? <Button onClick={() => navigate("/inventory")}>Inventory</Button> : null}
-          {canOpenApprovals ? <Button onClick={() => navigate("/approvals")}>Approvals</Button> : null}
+          {quickActionButtons.map((action) => (
+            <Button key={action.key} onClick={() => navigate(`/${action.key}`)}>
+              {action.label}
+            </Button>
+          ))}
           <Button icon={<ReloadOutlined />} onClick={handleRefresh} disabled={loading || usageLoading} type="primary">
             Refresh
           </Button>
@@ -458,6 +512,32 @@ export default function DashboardPage() {
 
       {showPriorityCards ? (
         <div className="dashboard-priority-grid stagger-group">
+          {isManagerRole ? (
+            <Card
+              title="Manager Control Center"
+              extra={
+                <Space size={8}>
+                  <Button size="small" onClick={() => navigate("/approvals")}>
+                    Open approvals
+                  </Button>
+                  <Button size="small" onClick={() => navigate(primaryReportPath || "/reports-v2")}>
+                    View comparisons
+                  </Button>
+                </Space>
+              }
+              className="dashboard-priority-card"
+            >
+              <div className="alert-values" style={{ marginBottom: 10 }}>
+                <span className="alert-chip">Open jobs: {numberFormatter.format(activeJobsCount)}</span>
+                <span className="alert-chip">Pending approvals: {numberFormatter.format(pendingJobsCount)}</span>
+                <span className="alert-chip">Critical low stock: {numberFormatter.format(criticalLowStockCount)}</span>
+              </div>
+              <Typography.Text type="secondary">
+                Monitor approvals, open work orders, and urgent stock risk from one view.
+              </Typography.Text>
+            </Card>
+          ) : null}
+
           {isApprover ? (
             <Card
               title="Pending Approvals"
@@ -817,9 +897,16 @@ export default function DashboardPage() {
         </Card> : null}
 
         {canViewStockAnalytics ? (
-        <Card title="Financial Reports">
-          <Typography.Text type="secondary">Export reports for audits, finance, and procurement reviews.</Typography.Text>
+        <Card title={isManagerRole ? "Reports & Comparison Exports" : "Financial Reports"}>
+          <Typography.Text type="secondary">
+            {isManagerRole
+              ? "Compare profitability, productivity, and valuation from Advanced Reports, then export detailed files."
+              : "Export reports for audits, finance, and procurement reviews."}
+          </Typography.Text>
           <Space wrap style={{ marginTop: 12 }}>
+            {isManagerRole ? (
+              <Button onClick={() => navigate(primaryReportPath || "/reports-v2")}>Advanced report comparisons</Button>
+            ) : null}
             <Button
               icon={<DownloadOutlined />}
               onClick={() => handleDownload("/api/reports/stock-level?format=excel", "stock-levels.xlsx")}

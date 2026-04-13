@@ -32,6 +32,19 @@ import { useAuth } from "../state/AuthContext";
 import { useNotifications } from "../state/NotificationsContext";
 import { canAccessPage } from "../utils/access";
 
+const ROLE_NAV_PRIORITY: Record<string, string[]> = {
+  admin: ["/dashboard", "__notifications__", "/approvals", "/jobs", "/requests", "/inventory", "/deliveries", "/reports-v2", "/reports", "/users"],
+  manager: ["/dashboard", "__notifications__", "/approvals", "/jobs", "/requests", "/inventory", "/deliveries", "/reports-v2", "/reports", "/store-manager-reports", "/lead-tech-reports"],
+  store_manager: ["/dashboard", "__notifications__", "/requests", "/inventory", "/deliveries", "/jobs", "/store-manager-reports", "/reports"],
+  lead_technician: ["/dashboard", "__notifications__", "/jobs", "/requests", "/deliveries", "/lead-tech-reports", "/technician-reports"],
+  technician: ["/dashboard", "__notifications__", "/jobs", "/requests", "/deliveries", "/technician-reports"],
+  staff: ["/dashboard", "__notifications__", "/jobs", "/requests", "/deliveries"],
+  approver: ["/dashboard", "__notifications__", "/approvals", "/requests", "/jobs"],
+  finance: ["/dashboard", "__notifications__", "/reports-v2", "/reports", "/operations", "/platform"],
+  rider: ["/dashboard", "__notifications__", "/deliveries", "/my-settings"],
+  driver: ["/dashboard", "__notifications__", "/deliveries", "/my-settings"],
+};
+
 export default function NavBar() {
   const { isAdmin, user } = useAuth();
   const role = user?.role ?? "technician";
@@ -155,13 +168,27 @@ export default function NavBar() {
     [isAdmin, pendingCount, unreadCount, role]
   );
 
-  const selectedKey = menuItems.find((item) => item.key !== "__notifications__" && location.pathname.startsWith(item.key))?.key;
+  const orderedMenuItems = useMemo(() => {
+    const priorityKeys = ROLE_NAV_PRIORITY[role] ?? ROLE_NAV_PRIORITY.technician;
+    const priorityMap = new Map(priorityKeys.map((key, index) => [key, index]));
+    return menuItems
+      .map((item, index) => ({ item, index }))
+      .sort((a, b) => {
+        const aPriority = priorityMap.get(a.item.key) ?? Number.MAX_SAFE_INTEGER;
+        const bPriority = priorityMap.get(b.item.key) ?? Number.MAX_SAFE_INTEGER;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+        return a.index - b.index;
+      })
+      .map(({ item }) => item);
+  }, [menuItems, role]);
+
+  const selectedKey = orderedMenuItems.find((item) => item.key !== "__notifications__" && location.pathname.startsWith(item.key))?.key;
 
   return (
     <Menu
       mode="inline"
       selectedKeys={selectedKey ? [selectedKey] : []}
-      items={menuItems}
+      items={orderedMenuItems}
       onClick={(e) => {
         if (e.key === "__notifications__") {
           // Scroll to top and open the header notification bell (if visible),

@@ -8,7 +8,7 @@ export default function NotificationBar() {
   const { unreadCount, notifications, markAllRead } = useNotifications();
 
   const content = (
-    <div className="notification-popover">
+    <div className="notification-card notification-popover">
       <div className="notification-popover-head">
         <Typography.Text strong>Notifications</Typography.Text>
         <Button
@@ -50,20 +50,26 @@ export default function NotificationBar() {
   );
 
   return (
-    <Popover 
-      trigger="click" 
-      placement="bottomRight" 
-      content={content}
-      overlayClassName="mobile-notification-popover"
-    >
-      <Badge count={unreadCount} size="small">
-        <Button
-          type="text"
-          icon={<BellOutlined />}
-          aria-label="Open notifications"
-          className={`motion-icon-btn ${unreadCount > 0 ? "motion-icon-btn--active" : ""}`}
-        />
-      </Badge>
-    </Popover>
+    <div className="notification-wrapper">
+      <Popover 
+        trigger="click" 
+        placement="bottomRight" 
+        content={content}
+        getPopupContainer={(node) => node.parentElement || document.body}
+        overlayClassName="mobile-notification-popover"
+        rootClassName="notification-popover-root"
+        autoAdjustOverflow
+        showArrow
+      >
+        <Badge count={unreadCount} size="small">
+          <Button
+            type="text"
+            icon={<BellOutlined />}
+            aria-label="Open notifications"
+            className={`motion-icon-btn notification-btn ${unreadCount > 0 ? "motion-icon-btn--active" : ""}`}
+          />
+        </Badge>
+      </Popover>
+    </div>
   );
 }

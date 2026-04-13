@@ -26,8 +26,9 @@ export default function MobileSidebar({ open, onClose }: Props) {
         closable
         onClose={onClose}
         open={open}
+        mask={false}
         bodyStyle={{ padding: 0, overflow: "auto" }}
-        width={280}
+        width={300}
         className="mobile-sidebar-drawer"
         style={{ position: "relative", zIndex: 1001 }}
       >

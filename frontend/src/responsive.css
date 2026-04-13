@@ -77,7 +77,7 @@ svg {
 
   /* Mobile nav drawer should not occupy full screen width */
   .ant-drawer.mobile-sidebar-drawer .ant-drawer-content-wrapper {
-    width: min(82vw, 320px) !important;
+    width: min(76vw, 300px) !important;
   }
 
   .mobile-sidebar-drawer .ant-drawer-body {
@@ -318,7 +318,31 @@ svg {
   /* Notification popover mobile adjustments */
   .notification-popover {
     width: calc(100vw - 32px) !important;
-    max-width: 320px !important;
+    max-width: calc(100vw - 32px) !important;
+    left: 16px !important;
+    right: auto !important;
+  }
+
+  /* Ensure notification popover doesn't go off-screen on the left */
+  .notification-popover-root .ant-popover-inner {
+    max-width: calc(100vw - 32px) !important;
+  }
+
+  .notification-popover-root .ant-popover-arrow {
+    right: 20px !important;
+    left: auto !important;
+  }
+
+  /* Mobile wrapper positioning */
+  .notification-wrapper {
+    position: relative;
+  }
+
+  /* Prevent overflow on mobile */
+  .notification-popover-root.ant-popover {
+    max-width: calc(100vw - 20px) !important;
+    left: 10px !important;
+    right: 10px !important;
   }
 
   .notification-popover-head {
@@ -441,10 +465,10 @@ svg {
   }
 }
 
-/* Notification Bar Popover mobile adjustments */
+  /* Notification Bar Popover mobile adjustments */
 @media (max-width: 480px) {
   /* Notification bell button touch target */
-  .ant-popover-trigger .ant-btn {
+  .notification-wrapper .ant-btn.notification-btn {
     width: 44px !important;
     height: 44px !important;
     min-width: 44px !important;
@@ -453,9 +477,33 @@ svg {
     justify-content: center !important;
   }
 
+  /* Keep popover anchored to the header bell while preventing overflow */
+  .mobile-notification-popover .ant-popover-inner-content {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: min(calc(100vw - 24px), 340px) !important;
+    max-height: min(72dvh, 520px) !important;
+    border-radius: 16px !important;
+    margin: 0 !important;
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.3) !important;
+  }
+
+  /* Ensure notification content respects rounded corners */
+  .mobile-notification-popover .notification-popover {
+    border-radius: 16px !important;
+    overflow: hidden !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    left: auto !important;
+    right: auto !important;
+  }
+
   /* Ensure popover doesn't overflow screen */
   .ant-popover.mobile-notification-popover .ant-popover-inner {
-    max-height: calc(100dvh - 120px) !important;
+    max-height: min(72dvh, 520px) !important;
     overflow-y: auto !important;
   }
 

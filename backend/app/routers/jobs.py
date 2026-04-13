@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Response
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -23,7 +23,7 @@ def list_jobs(db: Session = Depends(get_db)) -> list[JobRead]:
     return [JobRead.model_validate(j, from_attributes=True) for j in jobs]
 
 
-@router.post("", response_model=JobRead, dependencies=[Depends(require_roles("lead_technician", "store_manager", "manager"))])
+@router.post("", response_model=JobRead, dependencies=[Depends(require_roles("admin", "lead_technician", "store_manager", "manager"))])
 def create_job(
     payload: JobCreate,
     db: Session = Depends(get_db),
@@ -81,7 +81,7 @@ def get_job(job_id: int, db: Session = Depends(get_db)) -> JobRead:
     return JobRead.model_validate(job, from_attributes=True)
 
 
-@router.patch("/{job_id}", response_model=JobRead, dependencies=[Depends(require_roles("lead_technician", "store_manager", "manager"))])
+@router.patch("/{job_id}", response_model=JobRead, dependencies=[Depends(require_roles("admin", "lead_technician", "store_manager", "manager"))])
 def update_job(job_id: int, payload: JobUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> JobRead:
     job = db.get(Job, job_id)
     if not job:
@@ -156,7 +156,7 @@ def update_job(job_id: int, payload: JobUpdate, db: Session = Depends(get_db), c
     return JobRead.model_validate(job, from_attributes=True)
 
 
-@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_roles("manager"))])
+@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_roles("admin", "manager"))])
 def delete_job(job_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> None:
     job = db.get(Job, job_id)
     if not job:
@@ -175,7 +175,7 @@ def delete_job(job_id: int, db: Session = Depends(get_db), current_user=Depends(
 @router.post(
     "/{job_id}/photos",
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_roles("technician", "lead_technician", "store_manager", "manager"))],
+    dependencies=[Depends(require_roles("admin", "technician", "lead_technician", "store_manager", "manager"))],
 )
 async def upload_job_photo(
     job_id: int,
@@ -239,7 +239,7 @@ def list_job_photos(
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
-    photos = db.scalars(select(JobPhoto).where(JobPhoto.job_id == job_id)).all()
+    photos = db.scalars(select(JobPhoto).where(JobPhoto.job_id == job_id).order_by(desc(JobPhoto.created_at))).all()
 
     return [
         {
@@ -278,7 +278,7 @@ def download_job_photo(
 @router.delete(
     "/{job_id}/photos/{photo_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_roles("lead_technician", "store_manager", "manager"))],
+    dependencies=[Depends(require_roles("admin", "lead_technician", "store_manager", "manager"))],
 )
 def delete_job_photo(
     job_id: int,
