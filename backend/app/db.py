@@ -104,6 +104,8 @@ def ensure_schema(engine: Engine) -> None:
     inspector = inspect(engine)
     dialect = engine.dialect.name
     datetime_type = "TIMESTAMP" if dialect == "postgresql" else "DATETIME"
+    bool_true = "TRUE" if dialect == "postgresql" else "1"
+    bool_false = "FALSE" if dialect == "postgresql" else "0"
     if not inspector.has_table("tenants"):
         table = Base.metadata.tables.get("tenants")
         if table is not None:
@@ -169,7 +171,11 @@ def ensure_schema(engine: Engine) -> None:
             if "area_code" not in user_columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN area_code VARCHAR(50)"))
             if "must_change_password" not in user_columns:
-                conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 0"))
+                conn.execute(
+                    text(
+                        f"ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT {bool_false}"
+                    )
+                )
 
         # Add missing columns for customers table (latitude, longitude, capacity_personnel)
         if inspector.has_table("customers"):
@@ -267,7 +273,7 @@ def ensure_schema(engine: Engine) -> None:
 
     with engine.begin() as conn:
         if "is_active" not in existing_columns:
-            conn.execute(text("ALTER TABLE parts ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"))
+            conn.execute(text(f"ALTER TABLE parts ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT {bool_true}"))
         if "min_quantity" not in existing_columns:
             conn.execute(text("ALTER TABLE parts ADD COLUMN min_quantity INTEGER NOT NULL DEFAULT 0"))
         if "allocated_quantity" not in existing_columns:
