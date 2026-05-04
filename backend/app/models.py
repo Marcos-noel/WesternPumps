@@ -40,6 +40,7 @@ class User(Base, TimestampMixin):
     role: Mapped[str] = mapped_column(String(50), default="technician")  # admin | lead_technician | technician | store_manager | manager | approver | finance | customer_wp
     password_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     # Technician-specific fields
     region: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Nairobi/Industrial | Nakuru | Mombasa
     area_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # For site navigation
@@ -59,6 +60,11 @@ class User(Base, TimestampMixin):
     approvals: Mapped[list["StockRequest"]] = relationship(
         back_populates="approved_by",
         foreign_keys="StockRequest.approved_by_user_id",
+    )
+    technician_zones: Mapped[list["TechnicianZoneAssignment"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="TechnicianZoneAssignment.zone_order.asc()",
     )
     tenant: Mapped["Tenant"] = relationship()
 
@@ -695,6 +701,20 @@ class UserPreference(Base, TimestampMixin):
     display_name_override: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
 
     user: Mapped["User"] = relationship()
+
+
+class TechnicianZoneAssignment(Base, TimestampMixin):
+    __tablename__ = "technician_zone_assignments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), default=1, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    region_label: Mapped[str] = mapped_column(String(255), index=True)
+    station_name: Mapped[str] = mapped_column(String(255))
+    client_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    zone_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    user: Mapped["User"] = relationship(back_populates="technician_zones")
 
 
 class PartAnalysis(Base, TimestampMixin):

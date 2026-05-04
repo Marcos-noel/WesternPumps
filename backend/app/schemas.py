@@ -19,9 +19,11 @@ class UserBase(BaseModel):
     full_name: Optional[str] = None
     role: str = "technician"
     is_active: bool = True
+    must_change_password: bool = False
     # Technician-specific fields
     region: Optional[str] = None  # Nairobi/Industrial | Nakuru | Mombasa
     area_code: Optional[str] = None  # For site navigation
+    zone_count: int = 0
 
 
 class UserCreate(BaseModel):
@@ -31,6 +33,7 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=10, max_length=72)
     full_name: Optional[str] = None
     role: str = "technician"
+    must_change_password: bool = False
 
 
 class UserRead(UserBase):
@@ -44,6 +47,7 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    must_change_password: Optional[bool] = None
 
 
 class UserPasswordChange(BaseModel):
@@ -53,6 +57,7 @@ class UserPasswordChange(BaseModel):
 
 class UserAdminPasswordReset(BaseModel):
     new_password: str = Field(min_length=10, max_length=72)
+    must_change_password: bool = True
 
 
 class UserPreferencesRead(BaseModel):
@@ -61,6 +66,16 @@ class UserPreferencesRead(BaseModel):
     animations_enabled: bool = True
     show_email_in_header: bool = True
     display_name_override: Optional[str] = None
+
+
+class TechnicianZoneRead(BaseModel):
+    id: int
+    region_label: str
+    station_name: str
+    client_code: Optional[str] = None
+    zone_order: int
+    created_at: datetime
+    updated_at: datetime
 
 
 class UserPreferencesUpdate(BaseModel):

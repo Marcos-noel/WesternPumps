@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -51,7 +51,7 @@ def update_customer(customer_id: int, payload: CustomerUpdate, db: Session = Dep
     return CustomerRead.model_validate(customer, from_attributes=True)
 
 
-@router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_roles("manager"))])
+@router.delete("/{customer_id}", status_code=status.HTTP_200_OK, response_class=Response, dependencies=[Depends(require_roles("manager"))])
 def delete_customer(customer_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> None:
     customer = db.get(Customer, customer_id)
     if not customer:

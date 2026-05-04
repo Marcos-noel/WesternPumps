@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { App as AntdApp, Button, Card, Drawer, Dropdown, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, Upload } from "antd";
 import type { MenuProps } from "antd";
 import { MoreOutlined, CameraOutlined, UploadOutlined, CheckOutlined, CloseOutlined } from "@ant-design/icons";
 import { listCustomers } from "../api/customers";
-import { createJob, listJobs, updateJob, uploadJobPhoto, listJobPhotos, getJobPhotoUrl, submitJobForApproval, approveJob, rejectJob, type JobPhoto } from "../api/jobs";
+import { createJob, listJobs, updateJob, uploadJobPhoto, listJobPhotos, downloadJobPhoto, submitJobForApproval, approveJob, rejectJob, type JobPhoto } from "../api/jobs";
 import { listAssignableUsers, listUsers } from "../api/users";
 import type { Customer, Job, User } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
@@ -58,6 +58,7 @@ export default function JobsPage() {
   const [detailJob, setDetailJob] = useState<Job | null>(null);
   const [editing, setEditing] = useState<Job | null>(null);
   const [photos, setPhotos] = useState<JobPhoto[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<Record<number, string>>({});
   const [loadingPhotos, setLoadingPhotos] = useState(false);
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
@@ -119,6 +120,48 @@ export default function JobsPage() {
       setPhotos([]);
     }
   }, [detailJob?.id]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadPhotoUrls() {
+      if (!detailJob || photos.length === 0) {
+        setPhotoUrls({});
+        return;
+      }
+      const entries = await Promise.all(
+        photos.map(async (photo) => {
+          try {
+            const blob = await downloadJobPhoto(detailJob.id, photo.id);
+            return [photo.id, URL.createObjectURL(blob)] as const;
+          } catch {
+            return [photo.id, ""] as const;
+          }
+        })
+      );
+      if (!active) {
+        entries.forEach(([, url]) => {
+          if (url) URL.revokeObjectURL(url);
+        });
+        return;
+      }
+      setPhotoUrls((prev) => {
+        Object.values(prev).forEach((url) => {
+          if (url) URL.revokeObjectURL(url);
+        });
+        return Object.fromEntries(entries.filter(([, url]) => url));
+      });
+    }
+    loadPhotoUrls();
+    return () => {
+      active = false;
+    };
+  }, [detailJob, photos]);
+
+  useEffect(() => () => {
+    Object.values(photoUrls).forEach((url) => {
+      if (url) URL.revokeObjectURL(url);
+    });
+  }, [photoUrls]);
 
   useEffect(() => {
     refresh();
@@ -705,9 +748,10 @@ export default function JobsPage() {
                 ) : photos.length > 0 ? (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                     {photos.map((photo) => (
+                      photoUrls[photo.id] ? (
                       <a
                         key={photo.id}
-                        href={getJobPhotoUrl(detailJob.id, photo.id)}
+                        href={photoUrls[photo.id]}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
@@ -720,13 +764,14 @@ export default function JobsPage() {
                         }}
                       >
                         <img
-                          src={getJobPhotoUrl(detailJob.id, photo.id)}
+                          src={photoUrls[photo.id]}
                           alt={photo.file_name}
                           loading="lazy"
                           decoding="async"
                           style={{ width: "100%", height: "100%", objectFit: "cover" }}
                         />
                       </a>
+                      ) : null
                     ))}
                   </div>
                 ) : (

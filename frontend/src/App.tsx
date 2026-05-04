@@ -52,8 +52,9 @@ const disableAuth = import.meta.env.VITE_DISABLE_AUTH === "true";
 const { Sider } = Layout;
 
 function Protected({ children }: { children: JSX.Element }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!disableAuth && user?.must_change_password) return <Navigate to="/my-settings?force_password_change=1" replace />;
   return children;
 }
 
@@ -68,6 +69,7 @@ function AdminOnly({ children }: { children: JSX.Element }) {
     );
   }
   if (!isAdmin) return <Navigate to="/customers" replace />;
+  if (user?.must_change_password) return <Navigate to="/my-settings?force_password_change=1" replace />;
   return children;
 }
 
@@ -83,6 +85,7 @@ function ManagerOnly({ children }: { children: JSX.Element }) {
     );
   }
   const role = user?.role ?? "technician";
+  if (user?.must_change_password) return <Navigate to="/my-settings?force_password_change=1" replace />;
   if (!(isAdmin || role === "manager")) return <Navigate to="/dashboard" replace />;
   return children;
 }
@@ -99,6 +102,7 @@ function InventoryOnly({ children }: { children: JSX.Element }) {
     );
   }
   const role = user?.role ?? "technician";
+  if (user?.must_change_password) return <Navigate to="/my-settings?force_password_change=1" replace />;
   if (!(isAdmin || role === "store_manager" || role === "manager")) return <Navigate to="/dashboard" replace />;
   return children;
 }
@@ -115,6 +119,7 @@ function ApproverOnly({ children }: { children: JSX.Element }) {
     );
   }
   const role = user?.role ?? "technician";
+  if (user?.must_change_password) return <Navigate to="/my-settings?force_password_change=1" replace />;
   if (!(isAdmin || role === "manager" || role === "approver")) return <Navigate to="/requests" replace />;
   return children;
 }
@@ -129,6 +134,9 @@ function AccessOnly({ page, children }: { page: AppPageKey; children: JSX.Elemen
         <BrandedLoader compact title="Loading access" subtitle={`Opening ${page}...`} />
       </div>
     );
+  }
+  if (page !== "my_settings" && user?.must_change_password) {
+    return <Navigate to="/my-settings?force_password_change=1" replace />;
   }
   if (!canAccessPage(user?.role, page)) return <Navigate to="/dashboard" replace />;
   return children;
@@ -155,7 +163,9 @@ const [drawerOpen, setDrawerOpen] = useState(false);
   const role = user?.role ?? "technician";
   const defaultHome = preferences?.default_landing_page && allowedLandingPages(role).includes(preferences.default_landing_page)
     ? preferences.default_landing_page
-    : "/dashboard";
+    : user?.must_change_password
+      ? "/my-settings?force_password_change=1"
+      : "/dashboard";
 
   useEffect(() => {
     if (isMobileViewport) setCollapsed(true);

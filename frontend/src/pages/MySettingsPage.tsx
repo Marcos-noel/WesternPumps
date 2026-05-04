@@ -1,22 +1,33 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Card, Form, Input, Select, Space, Spin, Switch, Typography } from "antd";
+import { useSearchParams } from "react-router-dom";
 import { getApiErrorMessage } from "../api/error";
-import { getMyPreferences, updateMyPreferences } from "../api/users";
+import { changeMyPassword, getMyPreferences, updateMyPreferences } from "../api/users";
 import { useAuth } from "../state/AuthContext";
 import { allowedLandingPages } from "../utils/access";
+import { validatePasswordPolicy } from "../utils/passwordPolicy";
 
 export default function MySettingsPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
 
   const [defaultLandingPage, setDefaultLandingPage] = useState("/dashboard");
   const [denseMode, setDenseMode] = useState(false);
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const [showEmailInHeader, setShowEmailInHeader] = useState(true);
   const [displayNameOverride, setDisplayNameOverride] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  const forcePasswordChange = searchParams.get("force_password_change") === "1" || Boolean(user?.must_change_password);
 
   const landingOptions = useMemo(
     () =>
@@ -74,6 +85,33 @@ export default function MySettingsPage() {
     }
   }
 
+  async function handlePasswordChange() {
+    setPasswordError(null);
+    setPasswordSuccess(null);
+    const policyError = validatePasswordPolicy(newPassword);
+    if (policyError) {
+      setPasswordError(policyError);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New password and confirmation do not match");
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      await changeMyPassword({ current_password: currentPassword, new_password: newPassword });
+      await refreshUser();
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordSuccess("Password updated successfully.");
+    } catch (err: any) {
+      setPasswordError(getApiErrorMessage(err, "Failed to update password"));
+    } finally {
+      setPasswordSaving(false);
+    }
+  }
+
   return (
     <div className="container page-shell">
       <Typography.Title level={2} style={{ marginTop: 0 }}>
@@ -90,6 +128,14 @@ export default function MySettingsPage() {
             <Typography.Paragraph type="secondary">
               Personalize your workspace. These settings apply only to your account.
             </Typography.Paragraph>
+            {forcePasswordChange ? (
+              <Alert
+                style={{ marginBottom: 16 }}
+                type="warning"
+                showIcon
+                message="You must change your password before continuing to the rest of the system."
+              />
+            ) : null}
 
             <Form.Item label="Default landing page">
               <Select value={defaultLandingPage} onChange={setDefaultLandingPage} options={landingOptions} />
@@ -130,6 +176,26 @@ export default function MySettingsPage() {
             {success ? <Alert style={{ marginTop: 12 }} type="success" showIcon message={success} /> : null}
           </Form>
         )}
+      </Card>
+      <Card style={{ marginTop: 16 }} title="Change Password">
+        <Form layout="vertical" onFinish={handlePasswordChange}>
+          <Form.Item label="Current password" required>
+            <Input.Password value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+          </Form.Item>
+          <Form.Item label="New password" required>
+            <Input.Password value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={10} />
+          </Form.Item>
+          <Form.Item label="Confirm new password" required>
+            <Input.Password value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={10} />
+          </Form.Item>
+          <Space>
+            <Button type="primary" htmlType="submit" loading={passwordSaving}>
+              Update Password
+            </Button>
+          </Space>
+          {passwordError ? <Alert style={{ marginTop: 12 }} type="error" showIcon message={passwordError} /> : null}
+          {passwordSuccess ? <Alert style={{ marginTop: 12 }} type="success" showIcon message={passwordSuccess} /> : null}
+        </Form>
       </Card>
     </div>
   );

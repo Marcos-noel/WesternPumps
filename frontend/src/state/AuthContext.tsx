@@ -12,7 +12,8 @@ type AuthContextValue = {
   user: User | null;
   isAdmin: boolean;
   loadingUser: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<User | null>;
+  refreshUser: () => Promise<User | null>;
   logout: () => void;
 };
 
@@ -31,15 +32,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAdmin: disableAuth ? true : user?.role === "admin",
       loadingUser: disableAuth ? false : loadingUser,
       login: async (email, password) => {
-        if (disableAuth) return;
+        if (disableAuth) return null;
         const data = await apiLogin(email, password);
         localStorage.setItem("access_token", data.access_token);
         setToken(data.access_token);
         try {
           const me = await readMe();
           setUser(me);
+          return me;
         } catch {
           setUser(null);
+          return null;
+        }
+      },
+      refreshUser: async () => {
+        if (disableAuth || !token) return null;
+        try {
+          const me = await readMe();
+          setUser(me);
+          return me;
+        } catch {
+          setUser(null);
+          return null;
         }
       },
       logout: () => {

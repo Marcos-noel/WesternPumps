@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import or_, select, func, and_
 from sqlalchemy.exc import IntegrityError
@@ -70,7 +70,7 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, db: Session = Dep
     return SupplierRead.model_validate(supplier, from_attributes=True)
 
 
-@router.delete("/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_roles("store_manager", "manager"))])
+@router.delete("/{supplier_id}", status_code=status.HTTP_200_OK, response_class=Response, dependencies=[Depends(require_roles("store_manager", "manager"))])
 def deactivate_supplier(supplier_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> None:
     supplier = db.get(Supplier, supplier_id)
     if not supplier:

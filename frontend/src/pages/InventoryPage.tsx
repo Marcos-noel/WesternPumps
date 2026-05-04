@@ -76,6 +76,38 @@ function buildCsv(headers: string[], rows: Array<Array<string | number | null | 
   return lines.join("\n");
 }
 
+function renderItemThumb(item: Item) {
+  if (item.image_url) {
+    return (
+      <img
+        src={item.image_url}
+        alt={item.name}
+        loading="lazy"
+        decoding="async"
+        style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(255,255,255,0.18)" }}
+      />
+    );
+  }
+  return (
+    <div
+      aria-label={`${item.name} image placeholder`}
+      style={{
+        width: 44,
+        height: 44,
+        borderRadius: 8,
+        border: "1px dashed rgba(255,255,255,0.24)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 11,
+        color: "rgba(255,255,255,0.72)",
+      }}
+    >
+      No Img
+    </div>
+  );
+}
+
 function parseCsv(content: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -379,10 +411,6 @@ export default function InventoryPage() {
       return;
     }
     const imageUrlValue = imageUrl.trim();
-    if (!imageUrlValue) {
-      setFormError("Item image URL is required");
-      return;
-    }
 
     const qoh = toInt(quantityOnHand);
     if (qoh === null || qoh < 0) {
@@ -406,7 +434,7 @@ export default function InventoryPage() {
       const payload = {
         name: nameValue,
         description: description.trim() || null,
-        image_url: imageUrlValue,
+        image_url: imageUrlValue || null,
         unit_price: price,
         quantity_on_hand: qoh,
         min_quantity: minQty,
@@ -504,18 +532,7 @@ export default function InventoryPage() {
       {
         title: "Image",
         key: "image_url",
-        render: (_: unknown, item: Item) =>
-          item.image_url ? (
-            <img
-              src={item.image_url}
-              alt={item.name}
-              loading="lazy"
-              decoding="async"
-              style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(255,255,255,0.18)" }}
-            />
-          ) : (
-            <Tag>Missing</Tag>
-          )
+        render: (_: unknown, item: Item) => renderItemThumb(item)
       },
       { title: label("Name", "name"), dataIndex: "name", key: "name" },
       {
@@ -1316,10 +1333,6 @@ export default function InventoryPage() {
         }
         const description = idxDescription >= 0 ? (row[idxDescription] ?? "").trim() : "";
         const imageUrlRaw = idxImageUrl >= 0 ? (row[idxImageUrl] ?? "").trim() : "";
-        if (!imageUrlRaw) {
-          errors.push(`Row ${i + 1}: image_url is required.`);
-          continue;
-        }
         const unitPriceRaw = idxUnitPrice >= 0 ? (row[idxUnitPrice] ?? "").trim() : "";
         const qtyRaw = idxQty >= 0 ? (row[idxQty] ?? "").trim() : "";
         const minRaw = idxMin >= 0 ? (row[idxMin] ?? "").trim() : "";
@@ -1404,7 +1417,7 @@ export default function InventoryPage() {
         try {
           await createItem({
             name,
-            image_url: imageUrlRaw,
+            image_url: imageUrlRaw || null,
             description: description || null,
             unit_price: unitPrice,
             quantity_on_hand: qty ?? 0,

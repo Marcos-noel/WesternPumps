@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import delete, select
@@ -174,14 +174,29 @@ def bootstrap_admin(payload: UserCreate, db: Session = Depends(get_db)) -> UserR
         role="admin",
         password_hash=password_hash,
         is_active=True,
+        must_change_password=False,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    return UserRead.model_validate(user, from_attributes=True)
+    return UserRead(
+        id=user.id,
+        tenant_id=user.tenant_id,
+        email=user.email,
+        phone=user.phone,
+        full_name=user.full_name,
+        role=user.role,
+        is_active=user.is_active,
+        must_change_password=bool(user.must_change_password),
+        region=user.region,
+        area_code=user.area_code,
+        zone_count=0,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+    )
 
 
-@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/forgot-password", status_code=status.HTTP_200_OK, response_class=Response)
 def forgot_password(payload: ForgotPasswordPayload, db: Session = Depends(get_db)) -> None:
     email = str(payload.email).strip().lower()
     user = db.scalar(select(User).where(User.email == email, User.is_active.is_(True)))
@@ -206,13 +221,16 @@ def forgot_password(payload: ForgotPasswordPayload, db: Session = Depends(get_db
     return None
 
 
-@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/reset-password", status_code=status.HTTP_200_OK, response_class=Response)
 def reset_password(payload: ResetPasswordPayload, db: Session = Depends(get_db)) -> None:
     now = datetime.now(UTC)
     record = db.scalar(select(PasswordResetToken).where(PasswordResetToken.token == payload.token).limit(1))
     if not record:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
-    if now >= record.expires_at:
+    expires_at = record.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if now >= expires_at:
         db.delete(record)
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
@@ -227,6 +245,7 @@ def reset_password(payload: ResetPasswordPayload, db: Session = Depends(get_db))
         user.password_hash = get_password_hash(payload.new_password)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    user.must_change_password = False
 
     db.delete(record)
     log_audit(db, user, action="password_reset_via_token", entity_type="auth")

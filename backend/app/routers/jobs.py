@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -156,7 +156,7 @@ def update_job(job_id: int, payload: JobUpdate, db: Session = Depends(get_db), c
     return JobRead.model_validate(job, from_attributes=True)
 
 
-@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_roles("admin", "manager"))])
+@router.delete("/{job_id}", status_code=status.HTTP_200_OK, response_class=Response, dependencies=[Depends(require_roles("admin", "manager"))])
 def delete_job(job_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> None:
     job = db.get(Job, job_id)
     if not job:
@@ -277,7 +277,8 @@ def download_job_photo(
 
 @router.delete(
     "/{job_id}/photos/{photo_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
+    response_class=Response,
     dependencies=[Depends(require_roles("admin", "lead_technician", "store_manager", "manager"))],
 )
 def delete_job_photo(

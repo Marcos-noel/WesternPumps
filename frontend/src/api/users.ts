@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { User, UserPreferences, UserRole } from "./types";
+import type { TechnicianZone, User, UserPreferences, UserRole } from "./types";
 
 export type CreateUserPayload = {
   email: string;
@@ -7,6 +7,7 @@ export type CreateUserPayload = {
   password: string;
   full_name?: string | null;
   role?: UserRole;
+  must_change_password?: boolean;
 };
 
 export async function readMe(): Promise<User> {
@@ -27,7 +28,7 @@ export async function createUser(payload: CreateUserPayload): Promise<User> {
 
 export async function updateUser(
   userId: number,
-  payload: { phone?: string | null; full_name?: string | null; role?: UserRole; is_active?: boolean }
+  payload: { phone?: string | null; full_name?: string | null; role?: UserRole; is_active?: boolean; must_change_password?: boolean }
 ): Promise<User> {
   return (await api.patch<User>(`/users/${userId}`, payload)).data;
 }
@@ -49,7 +50,11 @@ export async function changeMyPassword(payload: { current_password: string; new_
 }
 
 export async function adminResetUserPassword(userId: number, newPassword: string): Promise<void> {
-  await api.post(`/users/${userId}/password`, { new_password: newPassword });
+  await api.post(`/users/${userId}/password`, { new_password: newPassword, must_change_password: true });
+}
+
+export async function listUserZones(userId: number): Promise<TechnicianZone[]> {
+  return (await api.get<TechnicianZone[]>(`/users/${userId}/zones`)).data;
 }
 
 export async function getMyPreferences(): Promise<UserPreferences> {
@@ -60,4 +65,24 @@ export async function updateMyPreferences(
   payload: Partial<UserPreferences>
 ): Promise<UserPreferences> {
   return (await api.put<UserPreferences>("/users/me/preferences", payload)).data;
+}
+
+export type TechnicianImportSummary = {
+  created_users: number;
+  updated_users: number;
+  created_zones: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+};
+
+export async function importTechniciansZonesXlsx(file: File, dryRun = false): Promise<TechnicianImportSummary> {
+  const form = new FormData();
+  form.append("file", file);
+  return (
+    await api.post<TechnicianImportSummary>("/api/import/technicians-zones-xlsx", form, {
+      params: dryRun ? { dry_run: true } : undefined,
+      headers: { "Content-Type": "multipart/form-data" }
+    })
+  ).data;
 }

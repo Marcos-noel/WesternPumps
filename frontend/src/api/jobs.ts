@@ -59,8 +59,12 @@ export async function listJobPhotos(jobId: number): Promise<JobPhoto[]> {
   return (await api.get<JobPhoto[]>(`/jobs/${jobId}/photos`)).data;
 }
 
-export function getJobPhotoUrl(jobId: number, photoId: number): string {
-  return `${api.defaults.baseURL}/jobs/${jobId}/photos/${photoId}/download`;
+export async function downloadJobPhoto(jobId: number, photoId: number): Promise<Blob> {
+  return (
+    await api.get(`/jobs/${jobId}/photos/${photoId}/download`, {
+      responseType: "blob",
+    })
+  ).data;
 }
 
 // Job Approval Workflow functions

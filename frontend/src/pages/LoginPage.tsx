@@ -55,10 +55,10 @@ export default function LoginPage() {
     setSuccess(null);
     setLoading(true);
     try {
-      await login(email.trim(), password);
+      const me = await login(email.trim(), password);
       sessionStorage.setItem("wp_show_welcome_loader", "1");
       setRedirectLoading(true);
-      navigate("/dashboard");
+      navigate(me?.must_change_password ? "/my-settings?force_password_change=1" : "/dashboard");
     } catch (err: any) {
       setError(getApiErrorMessage(err, "Login failed"));
     } finally {

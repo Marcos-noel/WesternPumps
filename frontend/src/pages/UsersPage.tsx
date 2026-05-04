@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { App as AntdApp, Button, Card, Dropdown, Form, Input, Modal, Select, Space, Table, Typography } from "antd";
+import { App as AntdApp, Button, Card, Dropdown, Form, Input, Modal, Select, Space, Table, Typography, Upload } from "antd";
 import type { MenuProps } from "antd";
 import { MoreOutlined } from "@ant-design/icons";
 import { forgotPassword } from "../api/auth";
@@ -8,11 +8,13 @@ import {
   createUser,
   deactivateUser,
   hardDeleteUser,
+  importTechniciansZonesXlsx,
+  listUserZones,
   listUsers,
   reactivateUser,
   updateUser
 } from "../api/users";
-import type { User, UserRole } from "../api/types";
+import type { TechnicianZone, User, UserRole } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
 import { useAuth } from "../state/AuthContext";
 import { formatDateTime } from "../utils/datetime";
@@ -42,12 +44,14 @@ export default function UsersPage() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<UserRole>("technician");
+  const [mustChangePassword, setMustChangePassword] = useState(true);
   const [creating, setCreating] = useState(false);
 
   const [editing, setEditing] = useState<User | null>(null);
   const [editPhone, setEditPhone] = useState("");
   const [editName, setEditName] = useState("");
   const [editRole, setEditRole] = useState<UserRole>("technician");
+  const [editMustChangePassword, setEditMustChangePassword] = useState(false);
   const [editingSave, setEditingSave] = useState(false);
 
   const [resettingUser, setResettingUser] = useState<User | null>(null);
@@ -55,6 +59,11 @@ export default function UsersPage() {
   const [resetSaving, setResetSaving] = useState(false);
 
   const [showCreateUserForm, setShowCreateUserForm] = useState(false);
+  const [importingTechnicians, setImportingTechnicians] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
+  const [zonesUser, setZonesUser] = useState<User | null>(null);
+  const [zones, setZones] = useState<TechnicianZone[]>([]);
+  const [zonesLoading, setZonesLoading] = useState(false);
 
   async function refresh() {
     setLoading(true);
@@ -90,13 +99,15 @@ export default function UsersPage() {
         phone: phone.trim() ? phone.trim() : null,
         password,
         full_name: fullName.trim() ? fullName.trim() : null,
-        role
+        role,
+        must_change_password: mustChangePassword
       });
       setEmail("");
       setPhone("");
       setPassword("");
       setFullName("");
       setRole("technician");
+      setMustChangePassword(true);
       message.success("User created");
       await refresh();
     } catch (err: any) {
@@ -111,6 +122,7 @@ export default function UsersPage() {
     setEditPhone(user.phone ?? "");
     setEditName(user.full_name ?? "");
     setEditRole((user.role as UserRole) ?? "technician");
+    setEditMustChangePassword(Boolean(user.must_change_password));
   }
 
   async function handleUpdate() {
@@ -120,7 +132,8 @@ export default function UsersPage() {
       await updateUser(editing.id, {
         phone: editPhone.trim() ? editPhone.trim() : null,
         full_name: editName.trim() ? editName.trim() : null,
-        role: editRole
+        role: editRole,
+        must_change_password: editMustChangePassword
       });
       message.success("User updated");
       setEditing(null);
@@ -197,6 +210,39 @@ export default function UsersPage() {
     }
   }
 
+  async function handleImportTechnicians(file: File) {
+    setImportingTechnicians(true);
+    setImportResult(null);
+    setError(null);
+    try {
+      const summary = await importTechniciansZonesXlsx(file);
+      setImportResult(
+        `Imported technicians: ${summary.created_users} created, ${summary.updated_users} updated, ${summary.created_zones} zones loaded.`
+      );
+      if (summary.errors.length > 0) {
+        setError(summary.errors.join(" | "));
+      }
+      await refresh();
+    } catch (err: any) {
+      setError(getApiErrorMessage(err, "Failed to import technician workbook"));
+    } finally {
+      setImportingTechnicians(false);
+    }
+  }
+
+  async function openZones(user: User) {
+    setZonesUser(user);
+    setZones([]);
+    setZonesLoading(true);
+    try {
+      setZones(await listUserZones(user.id));
+    } catch (err: any) {
+      setError(getApiErrorMessage(err, "Failed to load technician zones"));
+    } finally {
+      setZonesLoading(false);
+    }
+  }
+
   const columns = useMemo(
     () => [
       { title: "ID", dataIndex: "id", key: "id" },
@@ -208,6 +254,24 @@ export default function UsersPage() {
         dataIndex: "role",
         key: "role",
         render: (value: string) => (value === "staff" ? "technician" : value)
+      },
+      {
+        title: "Password",
+        key: "must_change_password",
+        render: (_: unknown, row: User) =>
+          row.must_change_password ? <Typography.Text type="warning">Must change</Typography.Text> : "Set"
+      },
+      {
+        title: "Zones",
+        key: "zone_count",
+        render: (_: unknown, row: User) =>
+          row.zone_count > 0 ? (
+            <Button type="link" onClick={() => openZones(row)} style={{ padding: 0 }}>
+              {row.zone_count} zone{row.zone_count === 1 ? "" : "s"}
+            </Button>
+          ) : (
+            "0"
+          )
       },
       { title: "Active", dataIndex: "is_active", key: "is_active", render: (value: boolean) => (value ? "Yes" : "No") },
       { title: "Created", dataIndex: "created_at", key: "created_at", render: (value: string) => formatDateTime(value) },
@@ -278,7 +342,17 @@ export default function UsersPage() {
         <Button onClick={() => setShowCreateUserForm((prev) => !prev)}>
           {showCreateUserForm ? "Hide Add User" : "Add New User"}
         </Button>
+        <Upload
+          showUploadList={false}
+          beforeUpload={(file) => {
+            handleImportTechnicians(file as File);
+            return false;
+          }}
+        >
+          <Button loading={importingTechnicians}>Import Technicians XLSX</Button>
+        </Upload>
       </Space>
+      {importResult ? <Typography.Text type="secondary">{importResult}</Typography.Text> : null}
       <div className="grid">
         {showCreateUserForm ? (
         <Card title="Create user">
@@ -297,6 +371,12 @@ export default function UsersPage() {
             </Form.Item>
             <Form.Item label="Role" required>
               <Select<UserRole> value={role} onChange={(value) => setRole(value)} options={ROLE_OPTIONS} />
+            </Form.Item>
+            <Form.Item label="Require password change on first login">
+              <Select value={mustChangePassword ? "yes" : "no"} onChange={(value) => setMustChangePassword(value === "yes")}>
+                <Select.Option value="yes">Yes</Select.Option>
+                <Select.Option value="no">No</Select.Option>
+              </Select>
             </Form.Item>
             <Button type="primary" htmlType="submit" disabled={creating}>
               Create
@@ -347,6 +427,12 @@ export default function UsersPage() {
           <Form.Item label="Role" required>
             <Select<UserRole> value={editRole} onChange={(value) => setEditRole(value)} options={ROLE_OPTIONS} />
           </Form.Item>
+          <Form.Item label="Require password change on next login">
+            <Select value={editMustChangePassword ? "yes" : "no"} onChange={(value) => setEditMustChangePassword(value === "yes")}>
+              <Select.Option value="yes">Yes</Select.Option>
+              <Select.Option value="no">No</Select.Option>
+            </Select>
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -366,6 +452,27 @@ export default function UsersPage() {
             Use 10+ chars with uppercase, lowercase, number, and symbol.
           </Typography.Text>
         </Form>
+      </Modal>
+
+      <Modal
+        title={zonesUser ? `Technician zones: ${zonesUser.full_name || zonesUser.email}` : "Technician zones"}
+        open={!!zonesUser}
+        onCancel={() => setZonesUser(null)}
+        footer={null}
+        width={720}
+      >
+        <Table
+          rowKey="id"
+          loading={zonesLoading}
+          dataSource={zones}
+          pagination={{ pageSize: 10 }}
+          columns={[
+            { title: "Order", dataIndex: "zone_order", key: "zone_order", width: 90 },
+            { title: "Region", dataIndex: "region_label", key: "region_label" },
+            { title: "Station", dataIndex: "station_name", key: "station_name" },
+            { title: "Client", dataIndex: "client_code", key: "client_code", render: (value: string | null) => value || "-" },
+          ]}
+        />
       </Modal>
     </div>
   );

@@ -12,6 +12,20 @@ export type User = {
   full_name?: string | null;
   role: string;
   is_active: boolean;
+  must_change_password: boolean;
+  region?: string | null;
+  area_code?: string | null;
+  zone_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TechnicianZone = {
+  id: number;
+  region_label: string;
+  station_name: string;
+  client_code?: string | null;
+  zone_order: number;
   created_at: string;
   updated_at: string;
 };

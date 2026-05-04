@@ -1,48 +1,87 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
+from dataclasses import dataclass
+from io import BytesIO
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db import get_db
 from app.audit import log_audit
+from app.db import get_db
 from app.deps import get_current_user, require_roles
-from app.models import Category, Location, Part, PartLocationStock, User
+from app.models import (
+    Location,
+    Part,
+    PartLocationStock,
+    StockTransaction,
+    StockTransactionType,
+    TechnicianZoneAssignment,
+    User,
+)
+from app.security import get_password_hash
 from app.sku import generate_system_sku
 
 try:
     import openpyxl
-except Exception:  # pragma: no cover - handled at runtime
+except Exception:  # pragma: no cover
     openpyxl = None
 
 
 router = APIRouter(prefix="/api/import", tags=["import"])
 
+TEMP_TECHNICIAN_PASSWORD = "Westernpumps@26"
+STORE_A_LOCATION = "Store A"
+TECHNICIAN_ROLE = "technician"
+
 
 class ImportSummary(BaseModel):
     created: int
+    updated: int = 0
     skipped: int
     failed: int
     errors: list[str] = Field(default_factory=list)
 
 
-def _normalize_header(value: Any) -> str:
-    text = str(value or "").strip().lower()
-    return re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+class TechnicianImportSummary(BaseModel):
+    created_users: int
+    updated_users: int
+    created_zones: int
+    skipped: int
+    failed: int
+    errors: list[str] = Field(default_factory=list)
+
+
+@dataclass
+class TechnicianZoneRow:
+    technician_name: str
+    region_label: str
+    station_name: str
+    client_code: str | None
+    zone_order: int
+
+
+def _normalize_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _normalize_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
 
 
 def _coerce_int(value: Any) -> int | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        return int(value)
     if isinstance(value, (int, float)):
         return int(value)
     text = str(value).strip()
-    if text == "":
+    if not text:
         return None
     try:
         return int(float(text))
@@ -50,50 +89,337 @@ def _coerce_int(value: Any) -> int | None:
         return None
 
 
-def _is_category_row(desc: str, unit: Any, store_a: Any, store_b: Any, totals: Any) -> bool:
-    if not desc:
+def _is_region_row(values: list[str]) -> bool:
+    if not values:
         return False
-    if unit or store_a or store_b or totals:
-        return False
-    clean = desc.strip()
-    return clean.isupper() or clean.endswith(":")
+    first = values[0].upper()
+    return "REGION" in first or "AREA" in first
 
 
-def _find_col(header: list[str], aliases: list[str]) -> int | None:
-    for alias in aliases:
-        try:
-            return header.index(alias)
-        except ValueError:
+def _is_counts_row(values: list[str]) -> bool:
+    return bool(values) and all("SITE" in value.upper() for value in values if value)
+
+
+def _clean_person_name(name: str) -> str:
+    cleaned = re.sub(r"\(.*?\)", "", name).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
+
+
+def _is_technician_header(value: str) -> bool:
+    cleaned = _clean_person_name(value)
+    if not cleaned or any(ch.isdigit() for ch in cleaned):
+        return False
+    upper = cleaned.upper()
+    blocked = {"STATION", "CLIENT", "SPAKI", "TEMK", "VEK"}
+    if upper in blocked or "REGION" in upper or "AREA" in upper or "SITE" in upper:
+        return False
+    parts = [piece for piece in cleaned.split(" ") if piece]
+    return len(parts) >= 2 and all(re.fullmatch(r"[A-Za-z'-]+", piece) for piece in parts)
+
+
+def _tech_email(full_name: str) -> str:
+    parts = [re.sub(r"[^A-Za-z]", "", piece).lower() for piece in _clean_person_name(full_name).split()]
+    parts = [piece for piece in parts if piece]
+    if len(parts) < 2:
+        raise ValueError(f"Cannot derive email from technician name '{full_name}'")
+    return f"{parts[0]}{parts[1]}@gmail.com"
+
+
+def _get_or_create_location(db: Session, name: str) -> Location:
+    existing = db.scalar(select(Location).where(Location.name == name).limit(1))
+    if existing:
+        return existing
+    location = Location(name=name)
+    db.add(location)
+    db.flush()
+    return location
+
+
+def _apply_store_a_quantity(db: Session, part: Part, quantity: int, current_user: User, note: str) -> None:
+    location = _get_or_create_location(db, STORE_A_LOCATION)
+    stock = db.scalar(
+        select(PartLocationStock)
+        .where(PartLocationStock.part_id == part.id, PartLocationStock.location_id == location.id)
+        .limit(1)
+    )
+    previous_quantity = int(part.quantity_on_hand or 0)
+    delta = quantity - previous_quantity
+    part.quantity_on_hand = quantity
+    part.location_id = location.id
+
+    if stock is None:
+        stock = PartLocationStock(part_id=part.id, location_id=location.id, quantity_on_hand=quantity)
+        db.add(stock)
+    else:
+        stock.quantity_on_hand = quantity
+
+    if delta != 0:
+        db.add(
+            StockTransaction(
+                part_id=part.id,
+                created_by_user_id=current_user.id if current_user else None,
+                transaction_type=StockTransactionType.ADJUST,
+                quantity_delta=delta,
+                movement_type="IMPORT_ADJUST",
+                notes=note,
+            )
+        )
+
+
+def _parse_store_sheet(workbook) -> list[tuple[str, int | None]]:
+    records: list[tuple[str, int | None]] = []
+    seen: set[tuple[str, int | None]] = set()
+
+    for ws in workbook.worksheets:
+        for idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+            first = _normalize_text(row[0] if row else None)
+            if not first:
+                continue
+            upper = first.upper()
+            if idx <= 2 and ("ITEM" in upper or "ITEMS NOT AVAILABLE" in upper):
+                continue
+            if upper in {"ITEM", "ACTUAL STOCKS"} or "ITEMS NOT AVAILABLE" in upper:
+                continue
+            qty = _coerce_int(row[1] if len(row) > 1 else None)
+            key = (_normalize_key(first), qty)
+            if key in seen:
+                continue
+            seen.add(key)
+            records.append((first, qty))
+    return records
+
+
+def _import_store_inventory(workbook, db: Session, current_user: User, dry_run: bool) -> ImportSummary:
+    rows = _parse_store_sheet(workbook)
+    existing_parts = db.scalars(select(Part)).all()
+    by_name = {_normalize_key(part.name): part for part in existing_parts}
+
+    created = 0
+    updated = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for name, qty in rows:
+        normalized_name = _normalize_key(name)
+        if not normalized_name:
+            skipped += 1
             continue
-    return None
+        is_sheet1_style = qty is not None
+        desired_qty = max(qty or 0, 0)
+        desired_min = desired_qty + 1 if is_sheet1_style else 1
+        existing = by_name.get(normalized_name)
+
+        if dry_run:
+            if existing is None:
+                created += 1
+            else:
+                updated += 1
+            continue
+
+        note = f"Imported from Store A.xlsx for {STORE_A_LOCATION}"
+        try:
+            if existing is None:
+                part = Part(
+                    sku=generate_system_sku(db),
+                    name=name.strip(),
+                    description=None,
+                    image_url=None,
+                    unit_price=None,
+                    quantity_on_hand=0,
+                    min_quantity=desired_min,
+                    tracking_type="BATCH",
+                    unit_of_measure=None,
+                    location_id=None,
+                    supplier_id=None,
+                )
+                db.add(part)
+                db.flush()
+                by_name[normalized_name] = part
+                created += 1
+                if is_sheet1_style:
+                    _apply_store_a_quantity(db, part, desired_qty, current_user, note)
+                else:
+                    part.quantity_on_hand = 0
+            else:
+                part = existing
+                part.name = name.strip()
+                if is_sheet1_style:
+                    _apply_store_a_quantity(db, part, desired_qty, current_user, note)
+                updated += 1
+
+            part.min_quantity = max(int(part.min_quantity or 0), desired_min)
+            part.is_active = True
+        except Exception as exc:  # pragma: no cover
+            db.rollback()
+            errors.append(f"{name}: {exc}")
+            continue
+
+    if not dry_run:
+        db.commit()
+
+    return ImportSummary(
+        created=created,
+        updated=updated,
+        skipped=skipped,
+        failed=len(errors),
+        errors=errors[:50],
+    )
 
 
-def _get_or_create_category(db: Session, name: str) -> int | None:
-    clean = name.strip()
-    if not clean:
-        return None
-    existing = db.scalar(select(Category).where(Category.name == clean))
-    if existing:
-        return existing.id
-    category = Category(name=clean)
-    db.add(category)
+def _parse_technician_zones(workbook) -> list[TechnicianZoneRow]:
+    ws = workbook.active
+    current_region = ""
+    active_columns: dict[int, str] = {}
+    zone_order: defaultdict[str, int] = defaultdict(int)
+    rows: list[TechnicianZoneRow] = []
+
+    for row in ws.iter_rows(values_only=True):
+        text_values = [_normalize_text(value) for value in row]
+        compact_values = [value for value in text_values if value]
+        if not compact_values:
+            continue
+        if _is_region_row(compact_values):
+            current_region = compact_values[0]
+            active_columns = {}
+            continue
+        if _is_counts_row(compact_values):
+            active_columns = {}
+            continue
+
+        header_candidates = {
+            idx: value
+            for idx, value in enumerate(text_values)
+            if _is_technician_header(value)
+            and (idx + 1 >= len(text_values) or not _normalize_text(text_values[idx + 1]))
+        }
+        if header_candidates:
+            active_columns = {idx: _clean_person_name(value) for idx, value in header_candidates.items()}
+            continue
+
+        if any(value.upper() == "STATION" for value in compact_values):
+            continue
+
+        for col_idx, technician_name in active_columns.items():
+            station_name = _normalize_text(text_values[col_idx] if col_idx < len(text_values) else "")
+            client_code = _normalize_text(text_values[col_idx + 1] if col_idx + 1 < len(text_values) else "")
+            if not station_name:
+                continue
+            zone_order[technician_name] += 1
+            rows.append(
+                TechnicianZoneRow(
+                    technician_name=technician_name,
+                    region_label=current_region or "Unassigned Region",
+                    station_name=station_name,
+                    client_code=client_code or None,
+                    zone_order=zone_order[technician_name],
+                )
+            )
+
+    return rows
+
+
+def _import_technician_workbook(workbook, db: Session, current_user: User, dry_run: bool) -> TechnicianImportSummary:
+    parsed_rows = _parse_technician_zones(workbook)
+    grouped: dict[str, list[TechnicianZoneRow]] = defaultdict(list)
+    for row in parsed_rows:
+        grouped[row.technician_name].append(row)
+
+    created_users = 0
+    updated_users = 0
+    created_zones = 0
+    skipped = 0
+    errors: list[str] = []
+
+    if dry_run:
+        seen_emails = {user.email.lower() for user in db.scalars(select(User)).all()}
+        for technician_name, zones in grouped.items():
+            try:
+                email = _tech_email(technician_name)
+            except ValueError as exc:
+                errors.append(str(exc))
+                continue
+            if email in seen_emails:
+                updated_users += 1
+            else:
+                created_users += 1
+            created_zones += len(zones)
+        return TechnicianImportSummary(
+            created_users=created_users,
+            updated_users=updated_users,
+            created_zones=created_zones,
+            skipped=skipped,
+            failed=len(errors),
+            errors=errors[:50],
+        )
+
+    password_hash = get_password_hash(TEMP_TECHNICIAN_PASSWORD)
+
+    for technician_name, zones in grouped.items():
+        try:
+            email = _tech_email(technician_name)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+
+        user = db.scalar(select(User).where(User.email == email).limit(1))
+        if user is None:
+            user = User(
+                tenant_id=current_user.tenant_id if current_user else 1,
+                email=email,
+                full_name=technician_name,
+                role=TECHNICIAN_ROLE,
+                password_hash=password_hash,
+                is_active=True,
+                must_change_password=True,
+            )
+            db.add(user)
+            db.flush()
+            created_users += 1
+        else:
+            user.full_name = technician_name
+            user.role = TECHNICIAN_ROLE
+            user.is_active = True
+            user.must_change_password = True
+            updated_users += 1
+
+        db.query(TechnicianZoneAssignment).filter(TechnicianZoneAssignment.user_id == user.id).delete()
+        for zone in zones:
+            db.add(
+                TechnicianZoneAssignment(
+                    tenant_id=user.tenant_id,
+                    user_id=user.id,
+                    region_label=zone.region_label,
+                    station_name=zone.station_name,
+                    client_code=zone.client_code,
+                    zone_order=zone.zone_order,
+                )
+            )
+            created_zones += 1
+
     db.commit()
-    db.refresh(category)
-    return category.id
+    return TechnicianImportSummary(
+        created_users=created_users,
+        updated_users=updated_users,
+        created_zones=created_zones,
+        skipped=skipped,
+        failed=len(errors),
+        errors=errors[:50],
+    )
 
 
-def _get_or_create_location(db: Session, name: str) -> int | None:
-    clean = name.strip()
-    if not clean:
-        return None
-    existing = db.scalar(select(Location).where(Location.name == clean))
-    if existing:
-        return existing.id
-    loc = Location(name=clean)
-    db.add(loc)
-    db.commit()
-    db.refresh(loc)
-    return loc.id
+def _load_workbook_from_upload(file: UploadFile):
+    if openpyxl is None:
+        raise HTTPException(status_code=500, detail="openpyxl not installed")
+    if not (file.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Only .xlsx files are supported")
+    payload = file.file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Uploaded workbook is empty")
+    try:
+        return openpyxl.load_workbook(BytesIO(payload), read_only=True, data_only=True)
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=400, detail=f"Failed to read workbook: {exc}") from exc
 
 
 @router.post(
@@ -107,121 +433,8 @@ def import_inventory_xlsx(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ImportSummary:
-    if openpyxl is None:
-        raise HTTPException(status_code=500, detail="openpyxl not installed")
-    if not file.filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=400, detail="Only .xlsx files are supported")
-
-    try:
-        wb = openpyxl.load_workbook(file.file, read_only=True, data_only=True)
-    except Exception as exc:  # pragma: no cover - runtime validation
-        raise HTTPException(status_code=400, detail=f"Failed to read workbook: {exc}") from exc
-
-    ws = wb.active
-    header_row_idx = None
-    header = None
-    for i, row in enumerate(ws.iter_rows(min_row=1, max_row=80, values_only=True), start=1):
-        if not row:
-            continue
-        normalized = [_normalize_header(c) for c in row]
-        has_name_col = any(c in {"item_description", "description", "item", "name", "item_name"} for c in normalized)
-        if has_name_col:
-            header_row_idx = i
-            header = normalized
-            break
-
-    if header_row_idx is None or header is None:
-        raise HTTPException(status_code=400, detail="Header row not found (expected 'ITEM DESCRIPTION').")
-
-    idx_desc = _find_col(header, ["item_description", "description", "item", "name", "item_name"])
-    idx_unit = _find_col(header, ["unit", "uom", "unit_of_measure"])
-    idx_store_a = _find_col(header, ["store_a", "storea"])
-    idx_store_b = _find_col(header, ["store_b", "storeb"])
-    idx_totals = _find_col(header, ["totals", "total", "qty", "quantity", "quantity_on_hand"])
-    idx_pic = _find_col(header, ["picture_links", "picture_link", "image", "image_url"])
-
-    if idx_desc is None:
-        raise HTTPException(status_code=400, detail="Header must include ITEM DESCRIPTION.")
-
-    created = 0
-    skipped = 0
-    errors: list[str] = []
-    current_category: str | None = None
-
-    for row_idx, row in enumerate(
-        ws.iter_rows(min_row=header_row_idx + 1, values_only=True), start=header_row_idx + 1
-    ):
-        desc = str(row[idx_desc] or "").strip()
-        if not desc:
-            continue
-        unit = row[idx_unit] if idx_unit is not None else None
-        store_a = row[idx_store_a] if idx_store_a is not None else None
-        store_b = row[idx_store_b] if idx_store_b is not None else None
-        totals = row[idx_totals] if idx_totals is not None else None
-        pic = row[idx_pic] if idx_pic is not None else None
-
-        if _is_category_row(desc, unit, store_a, store_b, totals):
-            current_category = desc.strip()
-            continue
-
-        a = _coerce_int(store_a) or 0
-        b = _coerce_int(store_b) or 0
-        qty = _coerce_int(totals)
-        if qty is None:
-            qty = a + b
-
-        sku = generate_system_sku(db)
-        category_id = _get_or_create_category(db, current_category) if current_category else None
-        unit_text = str(unit).strip() if unit is not None else ""
-        image_url = str(pic).strip() if pic is not None else ""
-        if not image_url:
-            skipped += 1
-            errors.append(f"Row {row_idx}: image_url is required.")
-            continue
-
-        part = Part(
-            sku=sku,
-            name=desc,
-            description=None,
-            image_url=image_url,
-            unit_price=None,
-            quantity_on_hand=qty or 0,
-            min_quantity=0,
-            tracking_type="BATCH",
-            unit_of_measure=unit_text or None,
-            category_id=category_id,
-            location_id=None,
-            supplier_id=None,
-        )
-
-        if dry_run:
-            created += 1
-            continue
-
-        db.add(part)
-        try:
-            db.commit()
-            created += 1
-            if a or b:
-                if a:
-                    loc_a = _get_or_create_location(db, "Store A")
-                    if loc_a:
-                        db.add(PartLocationStock(part_id=part.id, location_id=loc_a, quantity_on_hand=a))
-                if b:
-                    loc_b = _get_or_create_location(db, "Store B")
-                    if loc_b:
-                        db.add(PartLocationStock(part_id=part.id, location_id=loc_b, quantity_on_hand=b))
-                db.commit()
-        except IntegrityError as exc:
-            db.rollback()
-            skipped += 1
-            errors.append(f"Row {row_idx}: {exc}")
-        except Exception as exc:  # pragma: no cover - safety net
-            db.rollback()
-            skipped += 1
-            errors.append(f"Row {row_idx}: {exc}")
-
-    failed = len(errors)
+    workbook = _load_workbook_from_upload(file)
+    summary = _import_store_inventory(workbook, db, current_user, dry_run)
     log_audit(
         db,
         current_user,
@@ -230,10 +443,42 @@ def import_inventory_xlsx(
         detail={
             "file_name": file.filename,
             "dry_run": dry_run,
-            "created": created,
-            "skipped": skipped,
-            "failed": failed,
+            "created": summary.created,
+            "updated": summary.updated,
+            "skipped": summary.skipped,
+            "failed": summary.failed,
         },
     )
     db.commit()
-    return ImportSummary(created=created, skipped=skipped, failed=failed, errors=errors[:50])
+    return summary
+
+
+@router.post(
+    "/technicians-zones-xlsx",
+    response_model=TechnicianImportSummary,
+    dependencies=[Depends(require_roles("admin", "manager"))],
+)
+def import_technicians_zones_xlsx(
+    file: UploadFile = File(...),
+    dry_run: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TechnicianImportSummary:
+    workbook = _load_workbook_from_upload(file)
+    summary = _import_technician_workbook(workbook, db, current_user, dry_run)
+    log_audit(
+        db,
+        current_user,
+        action="import",
+        entity_type="technician_zones",
+        detail={
+            "file_name": file.filename,
+            "dry_run": dry_run,
+            "created_users": summary.created_users,
+            "updated_users": summary.updated_users,
+            "created_zones": summary.created_zones,
+            "failed": summary.failed,
+        },
+    )
+    db.commit()
+    return summary

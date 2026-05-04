@@ -55,6 +55,7 @@ def _tenant_models():
         m.BatchUsageRecord,
         m.AuditLog,
         m.ProductAttachment,
+        m.TechnicianZoneAssignment,
         m.PartAnalysis,
         m.DemandForecast,
         m.PickWave,
@@ -135,6 +136,10 @@ def ensure_schema(engine: Engine) -> None:
         table = Base.metadata.tables.get("user_preferences")
         if table is not None:
             table.create(bind=engine)
+    if not inspector.has_table("technician_zone_assignments"):
+        table = Base.metadata.tables.get("technician_zone_assignments")
+        if table is not None:
+            table.create(bind=engine)
     if not inspector.has_table("domain_events"):
         table = Base.metadata.tables.get("domain_events")
         if table is not None:
@@ -163,6 +168,8 @@ def ensure_schema(engine: Engine) -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN region VARCHAR(100)"))
             if "area_code" not in user_columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN area_code VARCHAR(50)"))
+            if "must_change_password" not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 0"))
 
         # Add missing columns for customers table (latitude, longitude, capacity_personnel)
         if inspector.has_table("customers"):
@@ -217,6 +224,7 @@ def ensure_schema(engine: Engine) -> None:
         "audit_logs",
         "app_settings",
         "product_attachments",
+        "technician_zone_assignments",
         "domain_events",
         "outbox_events",
         "delivery_requests",

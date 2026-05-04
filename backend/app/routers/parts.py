@@ -4,8 +4,7 @@ import io
 import uuid
 
 import segno
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from reportlab.lib.pagesizes import mm
 from reportlab.lib.utils import ImageReader
@@ -136,9 +135,7 @@ def create_part(payload: PartCreate, db: Session = Depends(get_db), current_user
 
     data = payload.model_dump()
     image_url = (data.get("image_url") or "").strip()
-    if not image_url:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item image_url is required")
-    data["image_url"] = image_url
+    data["image_url"] = image_url or None
     data["sku"] = generate_system_sku(db)
     barcode_value = (data.get("barcode_value") or "").strip().upper()
     data["barcode_value"] = barcode_value or _next_part_barcode(db, data["sku"])
@@ -212,7 +209,7 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
     return PartRead.model_validate(part, from_attributes=True)
 
 
-@router.delete("/{part_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_roles("admin", "store_manager", "manager"))])
+@router.delete("/{part_id}", status_code=status.HTTP_200_OK, response_class=Response, dependencies=[Depends(require_roles("admin", "store_manager", "manager"))])
 def delete_part(part_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> None:
     part = db.get(Part, part_id)
     if not part:
@@ -288,9 +285,7 @@ def create_item(payload: ItemCreate, db: Session = Depends(get_db), current_user
 
     data = payload.model_dump()
     image_url = (data.get("image_url") or "").strip()
-    if not image_url:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item image_url is required")
-    data["image_url"] = image_url
+    data["image_url"] = image_url or None
     data["sku"] = generate_system_sku(db)
     barcode_value = (data.get("barcode_value") or "").strip().upper()
     data["barcode_value"] = barcode_value or _next_part_barcode(db, data["sku"])
@@ -354,7 +349,8 @@ def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(get_db)
 
 @api_router.post(
     "/items/{item_id}/reactivate",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
+    response_class=Response,
     dependencies=[Depends(require_roles("approver", "store_manager", "manager"))],
 )
 def reactivate_item(item_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> None:
@@ -369,7 +365,8 @@ def reactivate_item(item_id: int, db: Session = Depends(get_db), current_user=De
 
 @api_router.delete(
     "/items/{item_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
+    response_class=Response,
     dependencies=[Depends(require_roles("approver", "store_manager", "manager"))],
 )
 def deactivate_item(item_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> None:
@@ -384,7 +381,8 @@ def deactivate_item(item_id: int, db: Session = Depends(get_db), current_user=De
 
 @api_router.delete(
     "/items/{item_id}/hard",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
+    response_class=Response,
     dependencies=[Depends(require_admin)],
 )
 def hard_delete_item(item_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)) -> None:
@@ -882,7 +880,8 @@ def download_item_attachment(item_id: int, attachment_id: int, db: Session = Dep
 
 @api_router.delete(
     "/items/{item_id}/attachments/{attachment_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
+    response_class=Response,
     dependencies=[Depends(require_roles("store_manager", "manager"))],
 )
 def delete_item_attachment(
