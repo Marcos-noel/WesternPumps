@@ -59,7 +59,7 @@ function Protected({ children }: { children: JSX.Element }) {
 }
 
 function AdminOnly({ children }: { children: JSX.Element }) {
-  const { isAuthenticated, isAdmin, loadingUser } = useAuth();
+  const { isAuthenticated, isAdmin, loadingUser, user } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (loadingUser) {
     return (
